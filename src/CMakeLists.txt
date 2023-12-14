@@ -11,7 +11,6 @@ target_link_libraries(glslcc PRIVATE
         sx
         glslang
         glslang-default-resource-limits
-        OGLCompiler
         OSDependent
         SPIRV
         SPVRemapper

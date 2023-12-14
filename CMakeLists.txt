@@ -48,10 +48,8 @@ if(ENABLE_HLSL)
     add_definitions(-DENABLE_HLSL)
 endif(ENABLE_HLSL)
 
-if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_C_COMPILER_ID MATCHES "GNU"))
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu11")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-endif()
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 if (MSVC)
 	remove_compile_options(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}" "/GR")
@@ -67,6 +65,9 @@ endif()
 
 set(ENABLE_CTEST FALSE CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+
+# halx99: optimize require https://github.com/KhronosGroup/SPIRV-Tools?
+set(ALLOW_EXTERNAL_SPIRV_TOOLS ON CACHE BOOL "" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/spirv-cross)
 add_subdirectory(3rdparty/sx)

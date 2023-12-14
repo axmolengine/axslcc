@@ -118,7 +118,7 @@ public:
 		// Does not apply to shader storage or push constant blocks.
 		bool emit_uniform_buffer_as_plain_uniforms = false;
 
-		// Whether emit expanded uniforms for legacy GLSL 1.x
+		// halx99: Whether emit expanded uniforms for legacy GLSL 1.x
 		bool emit_expanded_uniforms = false;
 
 		// Emit OpLine directives if present in the module.
@@ -289,6 +289,14 @@ public:
 	// Masking builtins only takes effect if the builtin in question is part of the stage output interface.
 	void mask_stage_output_by_location(uint32_t location, uint32_t component);
 	void mask_stage_output_by_builtin(spv::BuiltIn builtin);
+
+	// Allow to control how to format float literals in the output.
+	// Set to "nullptr" to use the default "convert_to_string" function.
+	// This handle is not owned by SPIRV-Cross and must remain valid until compile() has been called.
+	void set_float_formatter(FloatFormatter *formatter)
+	{
+		float_formatter = formatter;
+	}
 
 protected:
 	struct ShaderSubgroupSupportHelper
@@ -658,7 +666,7 @@ protected:
 	void emit_buffer_block_native(const SPIRVariable &var);
 	void emit_buffer_reference_block(uint32_t type_id, bool forward_declaration);
 	void emit_buffer_block_legacy(const SPIRVariable &var);
-    void emit_buffer_block_expanded(const SPIRVariable& var);
+    void emit_buffer_block_expanded(const SPIRVariable& var); // halx99
 	void emit_buffer_block_flattened(const SPIRVariable &type);
 	void fixup_implicit_builtin_block_names(spv::ExecutionModel model);
 	void emit_declared_builtin_block(spv::StorageClass storage, spv::ExecutionModel model);
@@ -753,7 +761,7 @@ protected:
 	virtual bool access_chain_needs_stage_io_builtin_translation(uint32_t base);
 
 	virtual void check_physical_type_cast(std::string &expr, const SPIRType *type, uint32_t physical_type);
-	virtual void prepare_access_chain_for_scalar_access(std::string &expr, const SPIRType &type,
+	virtual bool prepare_access_chain_for_scalar_access(std::string &expr, const SPIRType &type,
 	                                                    spv::StorageClass storage, bool &is_packed);
 
 	std::string access_chain(uint32_t base, const uint32_t *indices, uint32_t count, const SPIRType &target_type,
@@ -997,6 +1005,7 @@ protected:
 	// Builtins in GLSL are always specific signedness, but the SPIR-V can declare them
 	// as either unsigned or signed.
 	// Sometimes we will need to automatically perform casts on load and store to make this work.
+	virtual SPIRType::BaseType get_builtin_basetype(spv::BuiltIn builtin, SPIRType::BaseType default_type);
 	virtual void cast_to_variable_store(uint32_t target_id, std::string &expr, const SPIRType &expr_type);
 	virtual void cast_from_variable_load(uint32_t source_id, std::string &expr, const SPIRType &expr_type);
 	void unroll_array_from_complex_load(uint32_t target_id, uint32_t source_id, std::string &expr);
@@ -1034,6 +1043,10 @@ protected:
 	std::unordered_set<LocationComponentPair, InternalHasher> masked_output_locations;
 	std::unordered_set<uint32_t> masked_output_builtins;
 
+	FloatFormatter *float_formatter = nullptr;
+	std::string format_float(float value) const;
+	std::string format_double(double value) const;
+
 private:
 	void init();
 
@@ -1042,7 +1055,7 @@ private:
 	void set_composite_constant(ConstantID const_id, TypeID type_id, const SmallVector<ConstantID> &initializers);
 	TypeID get_composite_member_type(TypeID type_id, uint32_t member_idx);
 	std::unordered_map<uint32_t, SmallVector<ConstantID>> const_composite_insert_ids;
-	std::vector<std::string> expanded_uniform_block_patterns; // expanded ub pattern for replace
+	std::vector<std::string> expanded_uniform_block_patterns; // halx99: expanded ub pattern for replace
 };
 } // namespace SPIRV_CROSS_NAMESPACE
 
