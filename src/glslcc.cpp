@@ -49,7 +49,18 @@
 //                  Update spirv-corss to: 633dc30 (Aug 17, 2023)
 //      1.9.2       Revert `Vertex shader: emit precision qualifiers for essl profile`
 //      1.9.3       Expand uniform block members for GLSL/ESSL100
+//      1.9.4       Fix MSL texture order does not follow GLSL binding order
 //
+
+/**
+* Latest Release: 1.9.4
+* 
+* - Fix MSL texture order does not follow GLSL binding order
+*   - https://github.com/KhronosGroup/SPIRV-Cross/issues/2140
+*   - https://github.com/KhronosGroup/SPIRV-Cross/issues/1971
+*   - https://github.com/KhronosGroup/SPIRV-Cross/issues/1464
+*/
+
 #define _ALLOW_KEYWORD_MACROS
 
 #include "sx/allocator.h"
@@ -1295,6 +1306,11 @@ static int cross_compile(const cmd_args& args, std::vector<uint32_t>& spirv,
                 hlsl->set_decoration(new_builtin, spv::DecorationDescriptorSet, 0);
                 hlsl->set_decoration(new_builtin, spv::DecorationBinding, 0);
             }
+        } else if (args.lang == SHADER_LANG_MSL) {
+            spirv_cross::CompilerMSL* msl = (spirv_cross::CompilerMSL*)compiler.get();
+            spirv_cross::CompilerMSL::Options msl_opts = msl->get_msl_options();
+            msl_opts.enable_decoration_binding = true;
+            msl->set_msl_options(msl_opts);
         }
 
         // Flatten ubos
@@ -1814,6 +1830,7 @@ static int compile_files(cmd_args& args, const TBuiltInResource& limits_conf)
         glslang::SpvOptions spv_opts;
         spv_opts.validate = true;
         spv_opts.disableOptimizer = false;
+        spv_opts.optimizeSize = !!args.optimize;
         spv::SpvBuildLogger logger;
         sx_assert(prog->getIntermediate(files[i].stage));
 
