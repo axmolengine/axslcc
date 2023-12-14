@@ -67,7 +67,16 @@ set(ENABLE_CTEST FALSE CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 
 # halx99: optimize require https://github.com/KhronosGroup/SPIRV-Tools?
-set(ALLOW_EXTERNAL_SPIRV_TOOLS ON CACHE BOOL "" FORCE)
+set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
+
+if (NOT (IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang"))
+    message(STATUS "Downloading glslang ...")
+    find_program(GIT_COMMAND NAMES git REQUIRED)
+    execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/glslang.git" "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
+    find_program(PYTHON_COMMAND NAMES python3 python REQUIRED)
+    execute_process(COMMAND ${PYTHON_COMMAND} "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang/update_glslang_sources.py" 
+        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
+endif()
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/spirv-cross)
 add_subdirectory(3rdparty/sx)

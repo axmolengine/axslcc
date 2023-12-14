@@ -106,7 +106,7 @@
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 9
-#define VERSION_SUB 3
+#define VERSION_SUB 4
 
 static const sx_alloc* g_alloc = sx_alloc_malloc();
 static sgs_file* g_sgs = nullptr;
