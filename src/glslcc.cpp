@@ -50,10 +50,12 @@
 //      1.9.2       Revert `Vertex shader: emit precision qualifiers for essl profile`
 //      1.9.3       Expand uniform block members for GLSL/ESSL100
 //      1.9.4       Fix MSL texture order does not follow GLSL binding order
+//      1.9.5       Build for macos-arm64
+//                  Build for macos-10.15
 //
 
 /**
-* Latest Release: 1.9.4
+* Latest Release: 1.9.5
 * 
 * - Fix MSL texture order does not follow GLSL binding order
 *   - https://github.com/KhronosGroup/SPIRV-Cross/issues/2140
@@ -106,7 +108,7 @@
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 9
-#define VERSION_SUB 4
+#define VERSION_SUB 5
 
 static const sx_alloc* g_alloc = sx_alloc_malloc();
 static sgs_file* g_sgs = nullptr;
