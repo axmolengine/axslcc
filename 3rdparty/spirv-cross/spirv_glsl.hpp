@@ -66,7 +66,9 @@ enum AccessChainFlagBits
 	ACCESS_CHAIN_SKIP_REGISTER_EXPRESSION_READ_BIT = 1 << 3,
 	ACCESS_CHAIN_LITERAL_MSB_FORCE_ID = 1 << 4,
 	ACCESS_CHAIN_FLATTEN_ALL_MEMBERS_BIT = 1 << 5,
-	ACCESS_CHAIN_FORCE_COMPOSITE_BIT = 1 << 6
+	ACCESS_CHAIN_FORCE_COMPOSITE_BIT = 1 << 6,
+	ACCESS_CHAIN_PTR_CHAIN_POINTER_ARITH_BIT = 1 << 7,
+	ACCESS_CHAIN_PTR_CHAIN_CAST_TO_SCALAR_BIT = 1 << 8
 };
 typedef uint32_t AccessChainFlags;
 
@@ -441,7 +443,7 @@ protected:
 	virtual void emit_struct_member(const SPIRType &type, uint32_t member_type_id, uint32_t index,
 	                                const std::string &qualifier = "", uint32_t base_offset = 0);
 	virtual void emit_struct_padding_target(const SPIRType &type);
-	virtual std::string image_type_glsl(const SPIRType &type, uint32_t id = 0);
+	virtual std::string image_type_glsl(const SPIRType &type, uint32_t id = 0, bool member = false);
 	std::string constant_expression(const SPIRConstant &c,
 	                                bool inside_block_like_struct_scope = false,
 	                                bool inside_struct_scope = false);
@@ -480,7 +482,7 @@ protected:
 		uint32_t coord = 0, coord_components = 0, dref = 0;
 		uint32_t grad_x = 0, grad_y = 0, lod = 0, offset = 0;
 		uint32_t bias = 0, component = 0, sample = 0, sparse_texel = 0, min_lod = 0;
-		bool nonuniform_expression = false;
+		bool nonuniform_expression = false, has_array_offsets = false;
 	};
 	virtual std::string to_function_args(const TextureFunctionArguments &args, bool *p_forward);
 
@@ -567,8 +569,8 @@ protected:
 
 	Options options;
 
-	virtual std::string type_to_array_glsl(
-	    const SPIRType &type); // Allow Metal to use the array<T> template to make arrays a value type
+	// Allow Metal to use the array<T> template to make arrays a value type
+	virtual std::string type_to_array_glsl(const SPIRType &type, uint32_t variable_id);
 	std::string to_array_size(const SPIRType &type, uint32_t index);
 	uint32_t to_array_size_literal(const SPIRType &type, uint32_t index) const;
 	uint32_t to_array_size_literal(const SPIRType &type) const;
@@ -666,7 +668,7 @@ protected:
 	void emit_buffer_block_native(const SPIRVariable &var);
 	void emit_buffer_reference_block(uint32_t type_id, bool forward_declaration);
 	void emit_buffer_block_legacy(const SPIRVariable &var);
-    void emit_buffer_block_expanded(const SPIRVariable& var); // halx99
+	void emit_buffer_block_expanded(const SPIRVariable& var); // halx99
 	void emit_buffer_block_flattened(const SPIRVariable &type);
 	void fixup_implicit_builtin_block_names(spv::ExecutionModel model);
 	void emit_declared_builtin_block(spv::StorageClass storage, spv::ExecutionModel model);
@@ -757,6 +759,10 @@ protected:
 	std::string access_chain_internal(uint32_t base, const uint32_t *indices, uint32_t count, AccessChainFlags flags,
 	                                  AccessChainMeta *meta);
 
+	// Only meaningful on backends with physical pointer support ala MSL.
+	// Relevant for PtrAccessChain / BDA.
+	virtual uint32_t get_physical_type_stride(const SPIRType &type) const;
+
 	spv::StorageClass get_expression_effective_storage_class(uint32_t ptr);
 	virtual bool access_chain_needs_stage_io_builtin_translation(uint32_t base);
 
@@ -837,7 +843,9 @@ protected:
 	bool buffer_is_packing_standard(const SPIRType &type, BufferPackingStandard packing,
 	                                uint32_t *failed_index = nullptr, uint32_t start_offset = 0,
 	                                uint32_t end_offset = ~(0u));
-	std::string buffer_to_packing_standard(const SPIRType &type, bool support_std430_without_scalar_layout);
+	std::string buffer_to_packing_standard(const SPIRType &type,
+	                                       bool support_std430_without_scalar_layout,
+	                                       bool support_enhanced_layouts);
 
 	uint32_t type_to_packed_base_size(const SPIRType &type, BufferPackingStandard packing);
 	uint32_t type_to_packed_alignment(const SPIRType &type, const Bitset &flags, BufferPackingStandard packing);
@@ -935,6 +943,15 @@ protected:
 		PolyfillMatrixInverse2x2 = 1 << 6,
 		PolyfillMatrixInverse3x3 = 1 << 7,
 		PolyfillMatrixInverse4x4 = 1 << 8,
+		PolyfillNMin16 = 1 << 9,
+		PolyfillNMin32 = 1 << 10,
+		PolyfillNMin64 = 1 << 11,
+		PolyfillNMax16 = 1 << 12,
+		PolyfillNMax32 = 1 << 13,
+		PolyfillNMax64 = 1 << 14,
+		PolyfillNClamp16 = 1 << 15,
+		PolyfillNClamp32 = 1 << 16,
+		PolyfillNClamp64 = 1 << 17,
 	};
 
 	uint32_t required_polyfills = 0;

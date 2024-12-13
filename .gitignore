@@ -58,3 +58,4 @@ install
 *.obj
 *.zip
 *.gz
+3rdparty/glslang

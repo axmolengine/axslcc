@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(glslcc)
+project(axslcc)
 
  if (WIN32)
     set (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")

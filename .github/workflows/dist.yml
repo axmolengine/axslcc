@@ -55,23 +55,23 @@ jobs:
     - name: Create packages
       if: ${{ steps.check_ver.outputs.release_ver != '' }}
       run: |
-        curl -L https://github.com/simdsoft/1kiss/releases/download/devtools/d3dcompiler_47.dll -o ./glslcc-win64/d3dcompiler_47.dll
-        ls -l ./glslcc-win64
+        curl -L https://github.com/simdsoft/1kiss/releases/download/devtools/d3dcompiler_47.dll -o ./axslcc-win64/d3dcompiler_47.dll
+        ls -l ./axslcc-win64
         mkdir -p pkg_dir
-        prefix=glslcc-${{ steps.check_ver.outputs.release_ver }}
-        ls -l glslcc-linux
-        ls -l glslcc-osx-x64
-        ls -l glslcc-osx-arm64
-        sudo chmod u+x ./glslcc-linux/glslcc
-        sudo chmod u+x ./glslcc-osx-x64/glslcc
-        sudo chmod u+x ./glslcc-osx-arm64/glslcc
-        ls -l glslcc-linux
-        ls -l glslcc-osx-x64
-        ls -l glslcc-osx-arm64
-        tar -czvf ./pkg_dir/$prefix-linux.tar.gz -C ./glslcc-linux glslcc
-        tar -czvf ./pkg_dir/$prefix-osx-x64.tar.gz -C ./glslcc-osx-x64 glslcc
-        tar -czvf ./pkg_dir/$prefix-osx-arm64.tar.gz -C ./glslcc-osx-arm64 glslcc
-        sh -c "cd ./glslcc-win64; zip ../pkg_dir/$prefix-win64.zip glslcc.exe d3dcompiler_47.dll"
+        prefix=axslcc-${{ steps.check_ver.outputs.release_ver }}
+        ls -l axslcc-linux
+        ls -l axslcc-osx-x64
+        ls -l axslcc-osx-arm64
+        sudo chmod u+x ./axslcc-linux/axslcc
+        sudo chmod u+x ./axslcc-osx-x64/axslcc
+        sudo chmod u+x ./axslcc-osx-arm64/axslcc
+        ls -l axslcc-linux
+        ls -l axslcc-osx-x64
+        ls -l axslcc-osx-arm64
+        tar -czvf ./pkg_dir/$prefix-linux.tar.gz -C ./axslcc-linux axslcc
+        tar -czvf ./pkg_dir/$prefix-osx-x64.tar.gz -C ./axslcc-osx-x64 axslcc
+        tar -czvf ./pkg_dir/$prefix-osx-arm64.tar.gz -C ./axslcc-osx-arm64 axslcc
+        sh -c "cd ./axslcc-win64; zip ../pkg_dir/$prefix-win64.zip axslcc.exe d3dcompiler_47.dll"
     - name: Publish to github release page
       if: ${{ steps.check_ver.outputs.release_ver != '' }}
       uses: softprops/action-gh-release@v2
@@ -82,4 +82,4 @@ jobs:
           ./pkg_dir/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITHUB_REPOSITORY: axmolengine/glslcc
+        GITHUB_REPOSITORY: axmolengine/axslcc

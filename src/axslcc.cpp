@@ -1,6 +1,8 @@
 //
 // Copyright 2018 Sepehr Taghdisian (septag@github). All rights reserved.
-// License: https://github.com/septag/glslcc#license-bsd-2-clause
+// Copyright 2023~2024 axmol.dev, All rights reserved.
+// License: https://github.com/axmolengine/axslcc#license-bsd-2-clause
+// Original: https://github.com/septag/glslcc#license-bsd-2-clause
 //
 //
 // Version History
@@ -52,11 +54,11 @@
 //      1.9.4       Fix MSL texture order does not follow GLSL binding order
 //      1.9.5       Build for macos-arm64
 //                  Build for macos-10.15
+//      1.9.6       Rename glslcc to axslcc
 //
 
 /**
-* Latest Release: 1.9.5
-* 
+* @since 1.9.5 
 * - Fix MSL texture order does not follow GLSL binding order
 *   - https://github.com/KhronosGroup/SPIRV-Cross/issues/2140
 *   - https://github.com/KhronosGroup/SPIRV-Cross/issues/1971
@@ -83,6 +85,7 @@
 #include "SPIRV/spirv.hpp"
 
 #include "glslang/Public/ResourceLimits.h"
+#include "glslang/Public/ShaderLang.h"
 
 #include "spirv_cross.hpp"
 #include "spirv_glsl.hpp"
@@ -108,7 +111,7 @@
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 9
-#define VERSION_SUB 5
+#define VERSION_SUB 6
 
 static const sx_alloc* g_alloc = sx_alloc_malloc();
 static sgs_file* g_sgs = nullptr;

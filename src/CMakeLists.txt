@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.0)
 
-set(SOURCE_FILES "glslcc.cpp"
+set(SOURCE_FILES "axslcc.cpp"
                  "sgs-spec.h"
                  "sgs-writer.h" 
                  "sgs-writer.cpp")
 				 
-add_executable(glslcc ${SOURCE_FILES})
+add_executable(axslcc ${SOURCE_FILES})
 
-target_link_libraries(glslcc PRIVATE 
+target_link_libraries(axslcc PRIVATE 
         sx
         glslang
         glslang-default-resource-limits
@@ -25,7 +25,7 @@ target_link_libraries(glslcc PRIVATE
 if (MSVC)
 	if (ENABLE_D3D11_COMPILER)
 			add_definitions(-DD3D11_COMPILER)    
-			target_link_libraries(glslcc PRIVATE d3dcompiler)    
+			target_link_libraries(axslcc PRIVATE d3dcompiler)    
 	endif()
 elseif (NOT WIN32)
 	
@@ -36,14 +36,14 @@ if (STATIC_LINK AND NOT MSVC)
 	if (CMAKE_BUILD_TYPE STREQUAL Release)
 		set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 		#if (APPLE)
-		#	add_custom_command(TARGET glslcc POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/glslcc)
+		#	add_custom_command(TARGET axslcc POST_BUILD COMMAND strip -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/axslcc)
 		#elseif (NOT WIN32)
-		#	add_custom_command(TARGET glslcc POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/glslcc)
+		#	add_custom_command(TARGET axslcc POST_BUILD COMMAND strip -g -X -x ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/axslcc)
 		#endif()
 	endif()
 endif()	
 
-install(TARGETS glslcc 
+install(TARGETS axslcc 
         CONFIGURATIONS Release
         RUNTIME DESTINATION bin)
 		
