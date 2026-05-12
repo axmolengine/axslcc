@@ -1,0 +1,72 @@
+#include "cross_compiler.h"
+#include "spirv_compiler.h"
+
+#include "spirv_cross.hpp"
+#include "spirv_glsl.hpp"
+#include "spirv_hlsl.hpp"
+
+#include <memory>
+
+namespace axslcc::cross
+{
+
+namespace
+{
+
+constexpr std::string_view kAttribNames[] = {
+    "POSITION", "NORMAL", "TEXCOORD0", "TEXCOORD1", "TEXCOORD2", "TEXCOORD3",
+    "TEXCOORD4", "TEXCOORD5", "TEXCOORD6", "TEXCOORD7", "COLOR0", "COLOR1",
+    "COLOR2", "COLOR3", "TANGENT", "BINORMAL", "BLENDINDICES", "BLENDWEIGHT",
+};
+
+std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& target, const std::vector<uint32_t>& spirv)
+{
+    if (target.lang == axslc::SHADER_LANG_HLSL)
+        return std::make_unique<spirv_cross::CompilerHLSL>(spirv);
+    return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
+}
+
+} // namespace
+
+OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spirv)
+{
+    if (target.lang == axslc::SHADER_LANG_SPIRV)
+        return OutputBlob{target, spirv::spirv_to_bytes(spirv), true};
+
+    auto compiler = make_cross_compiler(target, spirv);
+    auto options = compiler->get_common_options();
+    options.flatten_multidimensional_arrays = true;
+
+    if (target.lang == axslc::SHADER_LANG_ESSL) {
+        options.es = true;
+        options.version = target.profile;
+    } else if (target.lang == axslc::SHADER_LANG_GLSL) {
+        options.es = false;
+        options.version = target.profile;
+        options.enable_420pack_extension = false;
+    } else if (target.lang == axslc::SHADER_LANG_HLSL) {
+        auto* hlsl = static_cast<spirv_cross::CompilerHLSL*>(compiler.get());
+        auto hlsl_options = hlsl->get_hlsl_options();
+        hlsl_options.shader_model = target.profile;
+        hlsl_options.point_size_compat = true;
+        hlsl_options.point_coord_compat = true;
+        hlsl_options.flatten_matrix_vertex_input_semantics = true;
+        hlsl->set_hlsl_options(hlsl_options);
+
+        if (uint32_t builtin = hlsl->remap_num_workgroups_builtin()) {
+            hlsl->set_decoration(builtin, spv::DecorationDescriptorSet, 0);
+            hlsl->set_decoration(builtin, spv::DecorationBinding, 0);
+        }
+
+        for (uint32_t i = 0; i < std::size(kAttribNames); ++i)
+            hlsl->add_vertex_attribute_remap({i, std::string(kAttribNames[i])});
+    }
+
+    compiler->set_common_options(options);
+    std::string code = compiler->compile();
+    std::vector<uint8_t> bytes(code.begin(), code.end());
+    bytes.push_back(0);
+    return OutputBlob{target, std::move(bytes), false};
+}
+
+} // namespace axslcc::cross

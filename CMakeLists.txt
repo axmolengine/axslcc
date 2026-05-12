@@ -107,7 +107,23 @@ endif()
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/spirv-cross)
 
-set(axslcc_SOURCES src/axslc-spec.h src/main.cpp)
+set(axslcc_SOURCES 
+    src/axslc-spec.h
+    src/types.h
+    src/utils.h
+    src/utils.cpp
+    src/spirv_compiler.h
+    src/spirv_compiler.cpp
+    src/cross_compiler.h
+    src/cross_compiler.cpp
+    src/reflection.h
+    src/reflection.cpp
+    src/sc_writer.h
+    src/sc_writer.cpp
+    src/compiler.h
+    src/compiler.cpp
+    src/main.cpp
+)
 add_executable(axslcc ${axslcc_SOURCES})
 target_link_libraries(axslcc PRIVATE
     glslang::glslang
