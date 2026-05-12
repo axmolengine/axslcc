@@ -106,7 +106,6 @@ endif()
 
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/spirv-cross)
-add_subdirectory(3rdparty/yasio)
 
 set(axslcc_SOURCES src/axslc-spec.h src/main.cpp)
 add_executable(axslcc ${axslcc_SOURCES})
@@ -116,8 +115,9 @@ target_link_libraries(axslcc PRIVATE
     glslang::glslang-default-resource-limits
     spirv-cross-glsl
     spirv-cross-hlsl
-    yasio
 )
+
+target_include_directories(axslcc PRIVATE 3rdparty/yasio)
 
 # ------------------------------------------------------------------------------
 # Helper Function: get_all_targets
