@@ -1,5 +1,6 @@
 #include "sc_writer.h"
 #include "utils.h"
+#include "version.h"
 
 #include "yasio/obstream.hpp"
 
@@ -12,8 +13,8 @@ namespace axslcc::sc_writer
 namespace
 {
 
-constexpr uint16_t kScMajor = 3;
-constexpr uint16_t kScMinor = 7;
+constexpr uint16_t kScMajor = AXSLCC_MAJOR;
+constexpr uint16_t kScMinor = AXSLCC_MINOR;
 
 uint32_t sc_lang(const Target& target)
 {

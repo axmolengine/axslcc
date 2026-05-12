@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "version.h"
 
 #include <algorithm>
 #include <cctype>
@@ -58,7 +59,14 @@ void print_help()
         << "  --reflect           Include reflection data in .sc output\n"
         << "  --migrate           GLSL to HLSL migration mode\n"
         << "  -DNAME[=VALUE]      Preprocessor define\n"
-        << "  -I<dir>             Include directory\n";
+        << "  -I<dir>             Include directory\n"
+        << "  --version           Print axslcc version and exit\n";
+}
+
+void print_version()
+{
+    std::cout << "axslcc v" << AXSLCC_VERSION_STRING << "\n\n"
+              << "Axslcc suite maintiained and supported by axmol community (axmol.dev)\n";
 }
 
 Target parse_target(std::string_view text)
@@ -105,6 +113,9 @@ Options parse_args(int argc, char** argv)
 
         if (arg == "--help" || arg == "-h") {
             print_help();
+            std::exit(0);
+        } else if (arg == "--version") {
+            print_version();
             std::exit(0);
         } else if (arg == "--input") {
             require_value(argc, argv, i, "--input", value);

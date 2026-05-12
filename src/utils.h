@@ -21,6 +21,7 @@ bool starts_with(std::string_view value, std::string_view prefix);
 Target parse_target(std::string_view text);
 Options parse_args(int argc, char** argv);
 void print_help();
+void print_version();
 
 // ============= File I/O =============
 
