@@ -3,6 +3,8 @@
 #include "spirv_cross.hpp"
 #include "spirv_glsl.hpp"
 #include "spirv_hlsl.hpp"
+#include "spirv_msl.hpp"
+#include "utils.h"
 #include "yasio/obstream.hpp"
 
 #include <algorithm>
@@ -61,8 +63,8 @@ uint16_t array_size(const spirv_cross::SPIRType& type)
 
     uint32_t size = 1;
     for (uint32_t dim : type.array)
-        size *= std::max(dim, 1u);
-    return static_cast<uint16_t>(std::min(size, 0xffffu));
+        size *= (std::max)(dim, 1u);
+    return static_cast<uint16_t>((std::min)(size, 0xffffu));
 }
 
 template <typename T>
@@ -81,6 +83,8 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
 {
     if (target.lang == axslc::SHADER_LANG_HLSL)
         return std::make_unique<spirv_cross::CompilerHLSL>(spirv);
+    if (target.lang == axslc::SHADER_LANG_MSL)
+        return std::make_unique<spirv_cross::CompilerMSL>(spirv);
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
 }
 
@@ -102,15 +106,35 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
     header.debug_info = 1;
     write_struct(out, header);
 
+    const bool is_hlsl = utils::is_hlsl_source(input);
+
+    auto clean_input_name = [](const std::string& name) -> std::string {
+        auto dot = name.find('.');
+        if (dot != std::string::npos)
+            return name.substr(dot + 1);
+        return name;
+    };
+
     auto write_input = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.type_id);
         axslc::sc_refl_input input_refl{};
-        copy_name(input_refl.name, sizeof(input_refl.name), resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name);
+        std::string raw_name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
+        std::string clean_name = is_hlsl ? clean_input_name(raw_name) : raw_name;
+        copy_name(input_refl.name, sizeof(input_refl.name), clean_name);
         uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
-        std::string semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-        copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
+        if (is_hlsl)
+        {
+            std::string semantic = "TEXCOORD";
+            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
+            input_refl.semantic_index = static_cast<uint16_t>(location);
+        }
+        else
+        {
+            std::string semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
+            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
+            input_refl.semantic_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+        }
         input_refl.location = static_cast<int32_t>(location);
-        input_refl.semantic_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
         input_refl.var_type = resolve_sc_type(type);
         write_struct(out, input_refl);
         ++header.num_inputs;
@@ -165,6 +189,9 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
     };
 
     for (const auto& resource : resources.sampled_images)
+        write_texture(resource, false);
+
+    for (const auto& resource : resources.separate_images)
         write_texture(resource, false);
 
     if (stage == ShaderStage::Compute) {
