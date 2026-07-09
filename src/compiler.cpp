@@ -33,7 +33,15 @@ void Compiler::compile(const Options& options)
         throw std::runtime_error("Cannot determine shader stage: " + options.input.string());
     auto stage = *stage_opt;
 
-    CompileUnit unit = spirv::compile_input(options);
+    CompileUnit unit;
+    try {
+        unit = spirv::compile_input(options);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "axslcc: error compiling " << options.input.filename().string()
+                  << ":\n  " << e.what() << std::endl;
+        throw;
+    }
 
     std::vector<OutputBlob> outputs;
     std::vector<tlx::byte_buffer> reflections;
