@@ -63,7 +63,7 @@ jobs:
         path: ./build/src/axslcc
         name: axslcc-linux-arm64
   osx-arm64:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
     - uses: actions/checkout@v6
     - name: Setup Xcode version
@@ -83,7 +83,7 @@ jobs:
         name: axslcc-osx-arm64
 
   osx-x64:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
     - uses: actions/checkout@v6
     - name: Setup Xcode version
