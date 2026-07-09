@@ -72,7 +72,7 @@ void Compiler::compile(const Options& options)
     std::vector<std::vector<uint8_t>> reflections;
 
     for (const auto& target : options.targets) {
-        auto blob = cross::cross_compile(target, unit.spirv);
+        auto blob = cross::cross_compile(target, unit.spirv, options.input);
 
 #ifdef _WIN32
         if (target.lang == axslc::SHADER_LANG_HLSL && !dxilBytes.empty())
