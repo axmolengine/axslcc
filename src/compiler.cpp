@@ -54,10 +54,15 @@ void Compiler::compile(const Options& options)
             auto dxcResult = dxc::compile_hlsl(options);
             dxilBytes = std::move(dxcResult.dxil);
         }
+        catch (const std::exception& e)
+        {
+            std::cerr << "[dxc] " << options.input.filename().string()
+                      << ": " << e.what() << std::endl;
+        }
         catch (...)
         {
-            std::cerr << "[dxc] WARNING: " << options.input.filename().string()
-                      << " - falling back to SPIR-V" << std::endl;
+            std::cerr << "[dxc] " << options.input.filename().string()
+                      << ": unknown error, falling back to SPIR-V" << std::endl;
         }
         g_inDxcCompile = false;
     }

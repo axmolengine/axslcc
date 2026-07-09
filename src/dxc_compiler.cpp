@@ -83,10 +83,12 @@ DxcResult compile_hlsl(const Options& options)
     {
         CComPtr<IDxcBlobEncoding> errors;
         opResult->GetErrorBuffer(&errors);
-        std::string msg = "DXC compile error: ";
+        std::string msg;
         if (errors)
-            msg.append((const char*)errors->GetBufferPointer(), errors->GetBufferSize());
-        throw std::runtime_error(msg);
+            msg.assign((const char*)errors->GetBufferPointer(), errors->GetBufferSize());
+        else
+            msg = "<no error buffer>";
+        throw std::runtime_error("DXC compile error (" + options.input.filename().string() + "):\n" + msg);
     }
 
     CComPtr<IDxcBlob> dxilBlob;

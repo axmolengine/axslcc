@@ -18,6 +18,7 @@ namespace axslcc::reflection
 namespace
 {
 
+// refer https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-semantics
 constexpr std::string_view kSemanticNames[] = {
     "POSITION", "NORMAL", "TEXCOORD", "TEXCOORD", "TEXCOORD", "TEXCOORD",
     "TEXCOORD", "TEXCOORD", "TEXCOORD", "TEXCOORD", "COLOR", "COLOR",
