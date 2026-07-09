@@ -7,7 +7,7 @@
 - **All versions <= 3.6.0 are deprecated.**  
   These legacy releases are retained **only** to support building older versions of **axmol** and are no longer actively maintained.
 - **The new implementation begins at >= 3.99.0.**  
-  From 3.9.0 onward, axslcc is a full rewrite and will follow a new development and release process.
+  From 3.99.0 onward, axslcc is a full rewrite and will follow a new development and release process.
 
 ## Download and Usage
 - If you need axslcc for **legacy axmol builds**, download the appropriate release assets from the legacy releases.
