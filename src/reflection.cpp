@@ -117,46 +117,90 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
 
     auto write_input = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.type_id);
-        axslc::sc_refl_input input_refl{};
-        std::string raw_name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
-        std::string clean_name = is_hlsl ? clean_input_name(raw_name) : raw_name;
-        copy_name(input_refl.name, sizeof(input_refl.name), clean_name);
-        uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
-        uint16_t sem_index = 0;
-        if (is_hlsl)
+
+        auto write_one = [&](const std::string& member_name, uint32_t member_idx, const spirv_cross::SPIRType& member_type,
+                             uint32_t location, uint16_t sem_index, const std::string& semantic_str) {
+            axslc::sc_refl_input input_refl{};
+            copy_name(input_refl.name, sizeof(input_refl.name), member_name);
+            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic_str);
+            input_refl.location = static_cast<int32_t>(location);
+            input_refl.semantic_index = sem_index;
+            input_refl.var_type = resolve_sc_type(member_type);
+            write_struct(out, input_refl);
+            ++header.num_inputs;
+        };
+
+        uint32_t member_count = static_cast<uint32_t>(type.member_types.size());
+        if (member_count > 0)
         {
-            std::string full_semantic;
-            if (compiler->has_decoration(resource.id, spv::DecorationUserSemantic))
+            for (uint32_t mi = 0; mi < member_count; ++mi)
             {
-                full_semantic = compiler->get_decoration_string(resource.id, spv::DecorationUserSemantic);
-                size_t pos = full_semantic.size();
-                while (pos > 0 && std::isdigit(static_cast<unsigned char>(full_semantic[pos - 1])))
-                    --pos;
-                if (pos < full_semantic.size())
+                std::string raw_name = compiler->get_member_name(type.self, mi);
+                std::string clean_name = is_hlsl ? clean_input_name(raw_name) : raw_name;
+                auto& member_type = compiler->get_type(type.member_types[mi]);
+                uint32_t location = compiler->get_member_decoration(type.self, mi, spv::DecorationLocation);
+
+                uint16_t sem_index = 0;
+                std::string semantic;
+                if (is_hlsl && compiler->has_member_decoration(type.self, mi, spv::DecorationUserSemantic))
                 {
-                    sem_index = static_cast<uint16_t>(std::stoul(full_semantic.substr(pos)));
-                    full_semantic = full_semantic.substr(0, pos);
+                    semantic = compiler->get_member_decoration_string(type.self, mi, spv::DecorationUserSemantic);
+                    size_t pos = semantic.size();
+                    while (pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[pos - 1])))
+                        --pos;
+                    if (pos < semantic.size())
+                    {
+                        sem_index = static_cast<uint16_t>(std::stoul(semantic.substr(pos)));
+                        semantic = semantic.substr(0, pos);
+                    }
                 }
-                copy_name(input_refl.semantic, sizeof(input_refl.semantic), full_semantic);
-            }
-            else
-            {
-                std::string semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-                copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
-                sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+                else if (is_hlsl)
+                {
+                    semantic = "TEXCOORD";
+                    sem_index = static_cast<uint16_t>(location);
+                }
+                else
+                {
+                    semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
+                    sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+                }
+
+                write_one(clean_name, mi, member_type, location, sem_index, semantic);
             }
         }
         else
         {
-            std::string semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
-            sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+            std::string raw_name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
+            std::string clean_name = is_hlsl ? clean_input_name(raw_name) : raw_name;
+            uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
+
+            uint16_t sem_index = 0;
+            std::string semantic;
+            if (is_hlsl && compiler->has_decoration(resource.id, spv::DecorationUserSemantic))
+            {
+                semantic = compiler->get_decoration_string(resource.id, spv::DecorationUserSemantic);
+                size_t pos = semantic.size();
+                while (pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[pos - 1])))
+                    --pos;
+                if (pos < semantic.size())
+                {
+                    sem_index = static_cast<uint16_t>(std::stoul(semantic.substr(pos)));
+                    semantic = semantic.substr(0, pos);
+                }
+            }
+            else if (is_hlsl)
+            {
+                semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
+                sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+            }
+            else
+            {
+                semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
+                sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+            }
+
+            write_one(clean_name, 0, type, location, sem_index, semantic);
         }
-        input_refl.semantic_index = sem_index;
-        input_refl.location = static_cast<int32_t>(location);
-        input_refl.var_type = resolve_sc_type(type);
-        write_struct(out, input_refl);
-        ++header.num_inputs;
     };
 
     if (stage == ShaderStage::Vertex) {
