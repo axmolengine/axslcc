@@ -66,7 +66,7 @@ uint16_t resolve_sc_type(D3D_REGISTER_COMPONENT_TYPE compType, BYTE mask)
 }
 
 // Extract ID3D12ShaderReflection from a DXIL container blob
-HRESULT extractShaderReflection(const std::vector<uint8_t>& dxil, CComPtr<ID3D12ShaderReflection>& outRefl)
+HRESULT extractShaderReflection(const tlx::byte_buffer& dxil, CComPtr<ID3D12ShaderReflection>& outRefl)
 {
     if (dxil.empty())
         return E_FAIL;
@@ -122,7 +122,7 @@ HRESULT extractShaderReflection(const std::vector<uint8_t>& dxil, CComPtr<ID3D12
 
 } // namespace
 
-std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage,
+tlx::byte_buffer build_reflection(const DxcResult& result, ShaderStage stage,
                                        const fs::path& input)
 {
     CComPtr<ID3D12ShaderReflection> shaderRefl;
@@ -225,7 +225,7 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
     }
 
     std::memcpy(out.data(), &header, sizeof(header));
-    return std::vector<uint8_t>(out.data(), out.data() + out.length());
+    return std::move(out.buffer());
 }
 
 } // namespace axslcc::dxc

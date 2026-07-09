@@ -44,7 +44,7 @@ void write_struct(yasio::fast_obstream& out, const T& value)
 } // namespace
 
 void write_sc(const Options& options, ShaderStage stage, const std::vector<OutputBlob>& outputs,
-    const std::vector<std::vector<uint8_t>>& reflections)
+    const std::vector<tlx::byte_buffer>& reflections)
 {
     std::vector<ScTarget> targets;
     targets.reserve(outputs.size());
@@ -107,8 +107,7 @@ void write_sc(const Options& options, ShaderStage stage, const std::vector<Outpu
         std::memcpy(out.data() + entries_offset + i * sizeof(entry), &entry, sizeof(entry));
     }
 
-    std::vector<uint8_t> bytes(out.data(), out.data() + out.length());
-    utils::write_file(utils::output_path_for_target(options, outputs.front().target), bytes);
+    utils::write_file(utils::output_path_for_target(options, outputs.front().target), out.buffer());
 }
 
 } // namespace axslcc::sc_writer

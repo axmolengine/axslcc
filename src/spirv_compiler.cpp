@@ -188,9 +188,9 @@ CompileUnit compile_input(const Options& options)
     throw std::runtime_error("compilation failed\n" + combined_log);
 }
 
-std::vector<uint8_t> spirv_to_bytes(const std::vector<uint32_t>& spirv)
+tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv)
 {
-    std::vector<uint8_t> bytes(spirv.size() * sizeof(uint32_t));
+    tlx::byte_buffer bytes(spirv.size() * sizeof(uint32_t));
     std::memcpy(bytes.data(), spirv.data(), bytes.size());
     return bytes;
 }

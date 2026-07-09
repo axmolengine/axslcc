@@ -117,7 +117,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
 
     compiler->set_common_options(options);
     std::string code = compiler->compile();
-    std::vector<uint8_t> bytes(code.begin(), code.end());
+    tlx::byte_buffer bytes(code.begin(), code.end());
     bytes.push_back(0);
     return OutputBlob{target, std::move(bytes), false};
 }

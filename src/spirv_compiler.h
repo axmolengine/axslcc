@@ -13,6 +13,6 @@ namespace axslcc::spirv
 
 CompileUnit compile_input(const Options& options);
 
-std::vector<uint8_t> spirv_to_bytes(const std::vector<uint32_t>& spirv);
+tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv);
 
 } // namespace axslcc::spirv

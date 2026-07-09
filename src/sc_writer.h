@@ -13,6 +13,6 @@ namespace axslcc::sc_writer
 // ============= SC Format Output =============
 
 void write_sc(const Options& options, ShaderStage stage, const std::vector<OutputBlob>& outputs,
-    const std::vector<std::vector<uint8_t>>& reflections);
+              const std::vector<tlx::byte_buffer>& reflections);
 
 } // namespace axslcc::sc_writer

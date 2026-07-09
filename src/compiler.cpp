@@ -36,7 +36,7 @@ void Compiler::compile(const Options& options)
     CompileUnit unit = spirv::compile_input(options);
 
     std::vector<OutputBlob> outputs;
-    std::vector<std::vector<uint8_t>> reflections;
+    std::vector<tlx::byte_buffer> reflections;
 
     for (const auto& target : options.targets) {
         auto blob = cross::cross_compile(target, unit.spirv, options.input);

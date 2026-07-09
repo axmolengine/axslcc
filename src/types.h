@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "yasio/tlx/byte_buffer.hpp"
+
 namespace fs = std::filesystem;
 
 namespace axslcc
@@ -54,7 +56,7 @@ struct CompileUnit
 struct OutputBlob
 {
     Target target;
-    std::vector<uint8_t> data;
+    tlx::byte_buffer data;
     bool binary = false;
 };
 
@@ -64,8 +66,8 @@ struct ScTarget
     uint32_t profile = 0;
     uint32_t offset = 0;
     uint32_t stage = 0;
-    std::vector<uint8_t> code;
-    std::vector<uint8_t> refl;
+    tlx::byte_buffer code;
+    tlx::byte_buffer refl;
     bool binary = false;
 };
 

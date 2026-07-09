@@ -92,7 +92,7 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
 
 } // namespace
 
-std::vector<uint8_t> build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
+tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
     ShaderStage stage, const fs::path& input)
 {
     auto compiler = target.lang == axslc::SHADER_LANG_SPIRV
@@ -275,7 +275,7 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
     }
 
     std::memcpy(out.data(), &header, sizeof(header));
-    return std::vector<uint8_t>(out.data(), out.data() + out.length());
+    return std::move(out.buffer());
 }
 
 } // namespace axslcc::reflection

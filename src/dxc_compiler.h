@@ -12,8 +12,8 @@ namespace axslcc::dxc
 
 struct DxcResult
 {
-    std::vector<uint8_t> dxil;
-    std::vector<uint8_t> refl;
+    tlx::byte_buffer dxil;
+    tlx::byte_buffer refl;
 };
 
 // Compile original .hlsl file to DXIL
@@ -24,7 +24,7 @@ DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
                           const std::vector<fs::path>& includeDirs,
                           const std::vector<std::string>& defines);
 
-std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage,
+tlx::byte_buffer build_reflection(const DxcResult& result, ShaderStage stage,
                                        const fs::path& input);
 
 } // namespace axslcc::dxc
