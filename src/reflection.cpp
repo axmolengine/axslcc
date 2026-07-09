@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <map>
 #include <memory>
 
 namespace axslcc::reflection
@@ -90,6 +91,82 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
 
 } // namespace
 
+// Parse HLSL source to extract vertex input semantics
+// Returns map: member_name -> {semantic, semantic_index}
+static std::map<std::string, std::pair<std::string, uint16_t>>
+parse_hlsl_semantics(const fs::path& input)
+{
+    std::map<std::string, std::pair<std::string, uint16_t>> result;
+    std::string source = utils::read_text_file(input);
+
+    // Find "struct VS_IN" or any struct with VS_OUT-like pattern for vertex inputs
+    std::string_view text(source);
+    auto pos = text.find("struct");
+    while (pos != std::string::npos)
+    {
+        // Find the struct body
+        auto brace = text.find('{', pos);
+        auto endBrace = text.find('}', brace);
+        if (brace == std::string::npos || endBrace == std::string::npos)
+            break;
+
+        // Check if this struct has semantics (e.g., contains ':')
+        auto body = text.substr(brace + 1, endBrace - brace - 1);
+        if (body.find(':') == std::string::npos)
+        {
+            pos = text.find("struct", endBrace);
+            continue;
+        }
+
+        // Parse each member: "type name : SEMANTIC;" or "type name : SEMANTIC<n>;"
+        size_t lineStart = 0;
+        while (lineStart < body.size())
+        {
+            auto lineEnd = body.find(';', lineStart);
+            if (lineEnd == std::string::npos) break;
+            std::string_view line(body.data() + lineStart, lineEnd - lineStart);
+
+            // Find the last ':' (semantic delimiter)
+            auto colon = line.rfind(':');
+            if (colon != std::string::npos)
+            {
+                // Extract semantic after ':'
+                std::string rawSem(line.substr(colon + 1));
+                // Trim whitespace
+                rawSem.erase(0, rawSem.find_first_not_of(" \t\r\n"));
+                rawSem.erase(rawSem.find_last_not_of(" \t\r\n") + 1);
+
+                // Extract name before ':'
+                std::string beforeColon(line.substr(0, colon));
+                // Name is the last word before ':'
+                auto lastSpace = beforeColon.find_last_not_of(" \t\r\n");
+                if (lastSpace != std::string::npos)
+                {
+                    beforeColon = beforeColon.substr(0, lastSpace + 1);
+                    auto nameStart = beforeColon.find_last_of(" \t\r\n*&");
+                    std::string varName = beforeColon.substr(nameStart + 1);
+
+                    // Parse semantic: "POSITION" or "TEXCOORD0"
+                    std::string semName(rawSem);
+                    uint16_t semIndex = 0;
+                    size_t digitPos = semName.size();
+                    while (digitPos > 0 && std::isdigit(static_cast<unsigned char>(semName[digitPos - 1])))
+                        --digitPos;
+                    if (digitPos < semName.size())
+                    {
+                        semIndex = static_cast<uint16_t>(std::stoul(semName.substr(digitPos)));
+                        semName = semName.substr(0, digitPos);
+                    }
+                    result[varName] = {semName, semIndex};
+                }
+            }
+            lineStart = lineEnd + 1;
+        }
+        break; // Only parse the first struct with semantics (VS_IN)
+    }
+    return result;
+}
+
 std::vector<uint8_t> build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
     ShaderStage stage, const fs::path& input)
 {
@@ -107,6 +184,17 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
     write_struct(out, header);
 
     const bool is_hlsl = utils::is_hlsl_source(input);
+    auto hlslSemantics = is_hlsl ? parse_hlsl_semantics(input) : std::map<std::string, std::pair<std::string, uint16_t>>{};
+
+    auto get_semantic = [&](const std::string& name) -> std::pair<std::string, uint16_t> {
+        if (is_hlsl)
+        {
+            auto it = hlslSemantics.find(name);
+            if (it != hlslSemantics.end())
+                return it->second;
+        }
+        return {};
+    };
 
     auto clean_input_name = [](const std::string& name) -> std::string {
         auto dot = name.find('.');
@@ -142,22 +230,19 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
 
                 uint16_t sem_index = 0;
                 std::string semantic;
-                if (is_hlsl && compiler->has_member_decoration(type.self, mi, spv::DecorationUserSemantic))
+                if (is_hlsl)
                 {
-                    semantic = compiler->get_member_decoration_string(type.self, mi, spv::DecorationUserSemantic);
-                    size_t pos = semantic.size();
-                    while (pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[pos - 1])))
-                        --pos;
-                    if (pos < semantic.size())
+                    auto hs = get_semantic(clean_name);
+                    if (!hs.first.empty())
                     {
-                        sem_index = static_cast<uint16_t>(std::stoul(semantic.substr(pos)));
-                        semantic = semantic.substr(0, pos);
+                        semantic = hs.first;
+                        sem_index = hs.second;
                     }
-                }
-                else if (is_hlsl)
-                {
-                    semantic = "TEXCOORD";
-                    sem_index = static_cast<uint16_t>(location);
+                    else
+                    {
+                        semantic = "TEXCOORD";
+                        sem_index = static_cast<uint16_t>(location);
+                    }
                 }
                 else
                 {
@@ -176,22 +261,19 @@ std::vector<uint8_t> build_reflection(const Target& target, const std::vector<ui
 
             uint16_t sem_index = 0;
             std::string semantic;
-            if (is_hlsl && compiler->has_decoration(resource.id, spv::DecorationUserSemantic))
+            if (is_hlsl)
             {
-                semantic = compiler->get_decoration_string(resource.id, spv::DecorationUserSemantic);
-                size_t pos = semantic.size();
-                while (pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[pos - 1])))
-                    --pos;
-                if (pos < semantic.size())
+                auto hs = get_semantic(clean_name);
+                if (!hs.first.empty())
                 {
-                    sem_index = static_cast<uint16_t>(std::stoul(semantic.substr(pos)));
-                    semantic = semantic.substr(0, pos);
+                    semantic = hs.first;
+                    sem_index = hs.second;
                 }
-            }
-            else if (is_hlsl)
-            {
-                semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-                sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
+                else
+                {
+                    semantic = "TEXCOORD";
+                    sem_index = static_cast<uint16_t>(location);
+                }
             }
             else
             {

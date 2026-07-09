@@ -124,6 +124,16 @@ set(axslcc_SOURCES
     src/compiler.cpp
     src/main.cpp
 )
+
+if(WIN32)
+    # DXC direct compilation path (Windows only, avoids SPIR-V roundtrip for D3D12)
+    list(APPEND axslcc_SOURCES
+        src/dxc_compiler.h
+        src/dxc_compiler.cpp
+        src/dxc_reflection.cpp
+    )
+endif()
+
 add_executable(axslcc ${axslcc_SOURCES})
 target_link_libraries(axslcc PRIVATE
     glslang::glslang
@@ -135,6 +145,10 @@ target_link_libraries(axslcc PRIVATE
 )
 
 target_include_directories(axslcc PRIVATE 3rdparty/yasio)
+
+if(WIN32)
+    target_link_libraries(axslcc PRIVATE dxcompiler dxguid)
+endif()
 
 # ------------------------------------------------------------------------------
 # Helper Function: get_all_targets
