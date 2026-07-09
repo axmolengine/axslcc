@@ -16,6 +16,12 @@
 namespace axslcc
 {
 
+#ifdef _WIN32
+// Set by Compiler to indicate DXC compilation is in progress (best-effort)
+// When true, main()'s SEH handler returns 0 on crash (allows fallback to SPIR-V)
+bool g_inDxcCompile = false;
+#endif
+
 void Compiler::initialize()
 {
     glslang::InitializeProcess();
@@ -33,34 +39,23 @@ void Compiler::compile(const Options& options)
         throw std::runtime_error("Cannot determine shader stage from filename: " + options.input.string());
     auto stage = *stage_opt;
 
-    // Always compile to SPIR-V first (needed for non-HLSL targets and for REFL data)
     CompileUnit spirvUnit = spirv::compile_input(options);
 
 #ifdef _WIN32
-    // On Windows, use DXC to compile HLSL → DXIL for HLSL targets
-    // This avoids the SPIR-V roundtrip for D3D12 bytecode (semantic preservation)
     bool hasHlslTarget = false;
     std::vector<uint8_t> dxilBytes;
     for (const auto& t : options.targets) {
-        if (t.lang == axslc::SHADER_LANG_HLSL) {
-            hasHlslTarget = true;
-            break;
-        }
+        if (t.lang == axslc::SHADER_LANG_HLSL) { hasHlslTarget = true; break; }
     }
 
     if (hasHlslTarget && utils::is_hlsl_source(options.input))
     {
-        try
-        {
-            auto dxcResult = dxc::compile_hlsl(options);
-            dxilBytes = std::move(dxcResult.dxil);
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "[dxc] WARNING: DXC compilation failed ("
-                      << options.input.string() << "): " << e.what()
-                      << " - falling back to SPIR-V HLSL output" << std::endl;
-        }
+        g_inDxcCompile = true;
+        std::cerr << "[dxc] flag SET" << std::endl;
+        auto dxcResult = dxc::compile_hlsl(options);
+        g_inDxcCompile = false;
+        std::cerr << "[dxc] flag CLEARED" << std::endl;
+        dxilBytes = std::move(dxcResult.dxil);
     }
 #endif
 

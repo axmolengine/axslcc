@@ -52,7 +52,7 @@ DxcResult compile_hlsl(const Options& options)
     if (!stage)
         throw std::runtime_error("Cannot determine shader stage from filename");
 
-    // Build DXC arguments (include dirs, defines)
+    // Build DXC arguments
     std::vector<std::wstring> argStorage;
     std::vector<LPCWSTR> args;
 
@@ -61,8 +61,13 @@ DxcResult compile_hlsl(const Options& options)
         argStorage.push_back(L"-I");
         argStorage.push_back(inc.wstring());
     }
-    for (const auto& arg : argStorage)
-        args.push_back(arg.c_str());
+    for (const auto& def : options.defines)
+    {
+        argStorage.push_back(L"-D");
+        argStorage.push_back(std::wstring(def.begin(), def.end()));
+    }
+    for (auto& a : argStorage)
+        args.push_back(a.c_str());
 
     CComPtr<IDxcOperationResult> opResult;
     HRESULT hr = compiler->Compile(
