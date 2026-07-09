@@ -123,7 +123,7 @@ void print_help()
         << "  axslcc --input <file> [--output <path>] --target=<lang-profile>[;<lang-profile>] [--sc] [--reflect]\n"
         << "  axslcc --input <glsl> --output <path> --target=hlsl-51 --migrate\n\n"
         << "Targets:\n"
-        << "  hlsl-50, hlsl-51, gles-300, glsl-330, glsl-450, spirv-100, msl-20000, msl-30000\n\n"
+        << "  hlsl-50, hlsl-51, essl-300, glsl-330, spirv-100, msl-20000, msl-30000\n\n"
         << "Options:\n"
         << "  --input <file>      Input HLSL 5.1 or GLSL file\n"
         << "  --output <path>     Output file or basename. Defaults to input stem\n"
@@ -184,7 +184,7 @@ Target parse_target(std::string_view text)
         target.lang = axslc::SHADER_LANG_HLSL;
     } else if (lang == "msl" && (profile >= 10000)) {
         target.lang = axslc::SHADER_LANG_MSL;
-    } else if (lang == "gles" && profile == 300) {
+    } else if (lang == "essl" && profile == 300) {
         target.lang = axslc::SHADER_LANG_ESSL;
     } else if (lang == "glsl" && (profile == 330 || profile == 450)) {
         target.lang = axslc::SHADER_LANG_GLSL;
@@ -343,13 +343,13 @@ fs::path output_path_for_target(const Options& options, const Target& target)
         ext = ".hlsl" + std::to_string(target.profile);
         break;
     case axslc::SHADER_LANG_ESSL:
-        ext = ".gles" + std::to_string(target.profile);
+        ext = ".essl" + std::to_string(target.profile);
         break;
     case axslc::SHADER_LANG_GLSL:
         ext = ".glsl" + std::to_string(target.profile);
         break;
     case axslc::SHADER_LANG_MSL:
-        ext = ".metal";
+        ext = ".msl";
         break;
     case axslc::SHADER_LANG_SPIRV:
         ext = ".spv";
