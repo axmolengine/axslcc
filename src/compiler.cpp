@@ -5,6 +5,10 @@
 #include "sc_writer.h"
 #include "utils.h"
 
+#ifdef _WIN32
+#include "dxc_compiler.h"
+#endif
+
 #include "glslang/Public/ShaderLang.h"
 
 #include <iostream>
@@ -35,11 +39,45 @@ void Compiler::compile(const Options& options)
 
     CompileUnit unit = spirv::compile_input(options);
 
+#ifdef _WIN32
+    bool hasHlslTarget = false;
+    std::vector<uint8_t> dxilBytes;
+    for (const auto& t : options.targets) {
+        if (t.lang == axslc::SHADER_LANG_HLSL) { hasHlslTarget = true; break; }
+    }
+
+    if (hasHlslTarget && utils::is_hlsl_source(options.input))
+    {
+        g_inDxcCompile = true;
+        try
+        {
+            auto dxcResult = dxc::compile_hlsl(options);
+            dxilBytes = std::move(dxcResult.dxil);
+        }
+        catch (...)
+        {
+            std::cerr << "[dxc] WARNING: " << options.input.filename().string()
+                      << " - falling back to SPIR-V" << std::endl;
+        }
+        g_inDxcCompile = false;
+    }
+#endif
+
     std::vector<OutputBlob> outputs;
     std::vector<std::vector<uint8_t>> reflections;
 
     for (const auto& target : options.targets) {
-        outputs.push_back(cross::cross_compile(target, unit.spirv));
+        auto blob = cross::cross_compile(target, unit.spirv);
+
+#ifdef _WIN32
+        if (target.lang == axslc::SHADER_LANG_HLSL && !dxilBytes.empty())
+        {
+            blob.data = dxilBytes;
+            blob.binary = true;
+        }
+#endif
+
+        outputs.push_back(std::move(blob));
         if (options.reflect)
             reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
     }

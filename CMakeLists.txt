@@ -132,6 +132,8 @@ if(WIN32)
         src/dxc_compiler.cpp
         src/dxc_reflection.cpp
     )
+    # Enable SEH→C++ exception conversion for DXC crash resilience
+    set_source_files_properties(src/compiler.cpp PROPERTIES COMPILE_FLAGS "/EHa")
 endif()
 
 add_executable(axslcc ${axslcc_SOURCES})
