@@ -100,6 +100,81 @@ DxcResult compile_hlsl(const Options& options)
     return out;
 }
 
+DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
+                          const std::vector<fs::path>& includeDirs,
+                          const std::vector<std::string>& defines)
+{
+    CComPtr<IDxcLibrary> library;
+    CComPtr<IDxcCompiler> compiler;
+    CComPtr<IDxcIncludeHandler> includeHandler;
+
+    if (FAILED(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library))))
+        throw std::runtime_error("Failed to create DXC library instance");
+
+    if (FAILED(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler))))
+        throw std::runtime_error("Failed to create DXC compiler instance");
+
+    library->CreateIncludeHandler(&includeHandler);
+
+    CComPtr<IDxcBlobEncoding> sourceBlob;
+    if (FAILED(library->CreateBlobWithEncodingOnHeapCopy(
+            hlsl.data(), static_cast<UINT32>(hlsl.size()), CP_UTF8, &sourceBlob)))
+        throw std::runtime_error("Failed to create DXC source blob");
+
+    std::vector<std::wstring> argStorage;
+    std::vector<LPCWSTR> args;
+
+    for (const auto& inc : includeDirs)
+    {
+        argStorage.push_back(L"-I");
+        argStorage.push_back(inc.wstring());
+    }
+    for (const auto& def : defines)
+    {
+        argStorage.push_back(L"-D");
+        argStorage.push_back(std::wstring(def.begin(), def.end()));
+    }
+    for (auto& a : argStorage)
+        args.push_back(a.c_str());
+
+    CComPtr<IDxcOperationResult> opResult;
+    HRESULT hr = compiler->Compile(
+        sourceBlob, nullptr, L"main", profile_for_stage(stage),
+        args.data(), static_cast<UINT>(args.size()), nullptr, 0, includeHandler, &opResult);
+
+    if (FAILED(hr))
+        throw std::runtime_error("DXC Compile() call failed");
+
+    HRESULT status;
+    opResult->GetStatus(&status);
+    if (FAILED(status))
+    {
+        CComPtr<IDxcBlobEncoding> errors;
+        opResult->GetErrorBuffer(&errors);
+        std::string msg;
+        if (errors)
+            msg.assign((const char*)errors->GetBufferPointer(), errors->GetBufferSize());
+        throw std::runtime_error("DXC compile error: " + msg);
+    }
+
+    CComPtr<IDxcBlob> dxilBlob;
+    opResult->GetResult(&dxilBlob);
+
+    DxcResult out;
+    out.dxil.assign((uint8_t*)dxilBlob->GetBufferPointer(),
+                     (uint8_t*)dxilBlob->GetBufferPointer() + dxilBlob->GetBufferSize());
+
+    CComPtr<IDxcBlob> reflBlob;
+    CComQIPtr<IDxcResult> dxcResult(opResult);
+    if (dxcResult)
+        dxcResult->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&reflBlob), nullptr);
+    if (reflBlob)
+        out.refl.assign((uint8_t*)reflBlob->GetBufferPointer(),
+                         (uint8_t*)reflBlob->GetBufferPointer() + reflBlob->GetBufferSize());
+
+    return out;
+}
+
 } // namespace axslcc::dxc
 
 #endif // _WIN32

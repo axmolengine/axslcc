@@ -16,10 +16,6 @@
 namespace axslcc
 {
 
-#ifdef _WIN32
-bool g_inDxcCompile = false;
-#endif
-
 void Compiler::initialize()
 {
     glslang::InitializeProcess();
@@ -39,35 +35,6 @@ void Compiler::compile(const Options& options)
 
     CompileUnit unit = spirv::compile_input(options);
 
-#ifdef _WIN32
-    bool hasHlslTarget = false;
-    std::vector<uint8_t> dxilBytes;
-    for (const auto& t : options.targets) {
-        if (t.lang == axslc::SHADER_LANG_HLSL) { hasHlslTarget = true; break; }
-    }
-
-    if (hasHlslTarget && utils::is_hlsl_source(options.input))
-    {
-        g_inDxcCompile = true;
-        try
-        {
-            auto dxcResult = dxc::compile_hlsl(options);
-            dxilBytes = std::move(dxcResult.dxil);
-        }
-        catch (const std::exception& e)
-        {
-            std::cerr << "[dxc] " << options.input.filename().string()
-                      << ": " << e.what() << std::endl;
-        }
-        catch (...)
-        {
-            std::cerr << "[dxc] " << options.input.filename().string()
-                      << ": unknown error, falling back to SPIR-V" << std::endl;
-        }
-        g_inDxcCompile = false;
-    }
-#endif
-
     std::vector<OutputBlob> outputs;
     std::vector<std::vector<uint8_t>> reflections;
 
@@ -75,10 +42,22 @@ void Compiler::compile(const Options& options)
         auto blob = cross::cross_compile(target, unit.spirv, options.input);
 
 #ifdef _WIN32
-        if (target.lang == axslc::SHADER_LANG_HLSL && !dxilBytes.empty())
+        // Optional: compile SPIRV-Cross HLSL output to DXIL bytecode
+        if (options.dxil && target.lang == axslc::SHADER_LANG_HLSL && !blob.binary)
         {
-            blob.data = dxilBytes;
-            blob.binary = true;
+            try
+            {
+                std::string hlslSource(reinterpret_cast<const char*>(blob.data.data()), blob.data.size() - 1);
+                auto dxcResult = dxc::compile_source(hlslSource, unit.stage,
+                                                      options.include_dirs, options.defines);
+                blob.data = std::move(dxcResult.dxil);
+                blob.binary = true;
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "[dxc] --dxil failed for " << options.input.filename().string()
+                          << ": " << e.what() << std::endl;
+            }
         }
 #endif
 

@@ -8,12 +8,6 @@
 #include <exception>
 #include <iostream>
 
-namespace axslcc {
-#ifdef _WIN32
-extern bool g_inDxcCompile;
-#endif
-}
-
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -65,10 +59,6 @@ int main(int argc, char** argv)
     __try {
         return run_main(argc, argv);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        if (axslcc::g_inDxcCompile) {
-            std::cerr << "[dxc] WARNING: DXC crash (SEH), falling back to SPIR-V\n";
-            return 0;
-        }
         std::cerr << "error: axslcc encountered an unrecoverable system error (exception code 0x"
                   << std::hex << GetExceptionCode() << std::dec << ")\n";
         return 1;

@@ -215,6 +215,10 @@ Options parse_args(int argc, char** argv)
             options.reflect = true;
         } else if (arg == "--migrate") {
             options.migrate = true;
+        } else if (arg == "--dxil") {
+            options.dxil = true;
+        } else if (arg == "--dxc-reflect") {
+            options.dxcReflect = true;
         } else if (starts_with(arg, "-D")) {
             if (arg.size() == 2) {
                 require_value(argc, argv, i, "-D", value);

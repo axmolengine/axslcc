@@ -40,6 +40,8 @@ struct Options
     bool sc = false;
     bool reflect = false;
     bool migrate = false;
+    bool dxil = false;      // Compile HLSL output to DXIL via DXC (Windows only)
+    bool dxcReflect = false; // Use DXC reflection for REFL (Windows only, validation)
 };
 
 struct CompileUnit

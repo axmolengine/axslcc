@@ -76,21 +76,33 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
             if (!semantics.empty())
             {
                 auto resources = compiler->get_shader_resources();
+
+                auto remap_one = [&](const std::string& name, uint32_t loc) {
+                    auto it = semantics.find(name);
+                    if (it != semantics.end())
+                    {
+                        std::string fullSem = make_semantic_string(it->second.first, it->second.second);
+                        hlsl->add_vertex_attribute_remap({loc, fullSem});
+                    }
+                };
+
                 for (const auto& res : resources.stage_inputs)
                 {
-                    auto& type = compiler->get_type(res.type_id);
-                    for (uint32_t mi = 0; mi < static_cast<uint32_t>(type.member_types.size()); ++mi)
-                    {
-                        std::string rawName = compiler->get_member_name(type.self, mi);
-                        std::string memName = utils::clean_input_name(rawName);
+                    auto& inputType = compiler->get_type(res.type_id);
+                    uint32_t memberCount = static_cast<uint32_t>(inputType.member_types.size());
 
-                        auto it = semantics.find(memName);
-                        if (it != semantics.end())
+                    if (memberCount > 0)
+                    {
+                        for (uint32_t mi = 0; mi < memberCount; ++mi)
                         {
-                            uint32_t loc = compiler->get_member_decoration(type.self, mi, spv::DecorationLocation);
-                            std::string fullSem = make_semantic_string(it->second.first, it->second.second);
-                            hlsl->add_vertex_attribute_remap({loc, fullSem});
+                            std::string rawName = compiler->get_member_name(inputType.self, mi);
+                            remap_one(utils::clean_input_name(rawName), compiler->get_member_decoration(inputType.self, mi, spv::DecorationLocation));
                         }
+                    }
+                    else
+                    {
+                        std::string rawName = res.name.empty() ? compiler->get_fallback_name(res.id) : res.name;
+                        remap_one(utils::clean_input_name(rawName), compiler->get_decoration(res.id, spv::DecorationLocation));
                     }
                 }
             }
