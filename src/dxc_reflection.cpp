@@ -2,8 +2,9 @@
 
 #include "dxc_compiler.h"
 #include "axslc-spec.h"
+#include "yasio/obstream.hpp"
 
-#include <windows.h>
+#include <combaseapi.h>
 #include <dxcapi.h>
 #include <d3d12shader.h>
 #include <atlbase.h>
@@ -19,26 +20,6 @@ namespace axslcc::dxc
 
 namespace
 {
-
-class byte_writer
-{
-public:
-    void write(const void* data, size_t size)
-    {
-        auto* p = static_cast<const uint8_t*>(data);
-        _buf.insert(_buf.end(), p, p + size);
-    }
-
-    void overwrite(size_t offset, const void* data, size_t size)
-    {
-        std::memcpy(_buf.data() + offset, data, size);
-    }
-
-    std::vector<uint8_t> take() { return std::move(_buf); }
-
-private:
-    std::vector<uint8_t> _buf;
-};
 
 void copy_name(char* dst, size_t size, const std::string& name)
 {
@@ -151,12 +132,12 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
     D3D12_SHADER_DESC shaderDesc{};
     shaderRefl->GetDesc(&shaderDesc);
 
-    byte_writer out;
+    yasio::fast_obstream out;
 
     axslc::sc_chunk_refl header{};
     copy_name(header.name, sizeof(header.name), input.filename().string());
     header.debug_info = 1;
-    out.write(&header, sizeof(header));
+    out.write_bytes(&header, sizeof(header));
 
     // --- Vertex inputs ---
     if (stage == ShaderStage::Vertex)
@@ -177,7 +158,7 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
             inputEntry.semantic_index = sigDesc.SemanticIndex;
             inputEntry.var_type = resolve_sc_type(sigDesc.ComponentType, sigDesc.Mask);
 
-            out.write(&inputEntry, sizeof(inputEntry));
+            out.write_bytes(&inputEntry, sizeof(inputEntry));
             ++header.num_inputs;
         }
     }
@@ -198,7 +179,7 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
         ubo.size_bytes = cbDesc.Size;
         ubo.num_members = static_cast<uint16_t>(std::min<UINT>(cbDesc.Variables, 0xffff));
         ubo.array_size = 0;
-        out.write(&ubo, sizeof(ubo));
+        out.write_bytes(&ubo, sizeof(ubo));
         ++header.num_uniform_buffers;
 
         for (UINT j = 0; j < cbDesc.Variables; ++j)
@@ -217,7 +198,7 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
             member.size_bytes = varDesc.Size;
             member.array_size = static_cast<uint16_t>(std::max<UINT>(varTypeDesc.Elements, 1u));
             member.var_type = axslc::SC_TYPE_FLOAT4;
-            out.write(&member, sizeof(member));
+            out.write_bytes(&member, sizeof(member));
         }
     }
 
@@ -239,12 +220,12 @@ std::vector<uint8_t> build_reflection(const DxcResult& result, ShaderStage stage
         texture.multisample = 0;
         texture.arrayed = 0;
 
-        out.write(&texture, sizeof(texture));
+        out.write_bytes(&texture, sizeof(texture));
         ++header.num_textures;
     }
 
-    out.overwrite(0, &header, sizeof(header));
-    return out.take();
+    std::memcpy(out.data(), &header, sizeof(header));
+    return std::vector<uint8_t>(out.data(), out.data() + out.length());
 }
 
 } // namespace axslcc::dxc
