@@ -8,6 +8,7 @@
 #include "spirv_msl.hpp"
 
 #include <memory>
+#include <unordered_map>
 
 namespace axslcc::cross
 {
@@ -44,13 +45,27 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     options.flatten_multidimensional_arrays = true;
 
     if (target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL) {
+        // Save original separate image names before building combined samplers
+        auto pre_resources = compiler->get_shader_resources();
+        std::unordered_map<uint32_t, std::string> image_names;
+        for (const auto& img : pre_resources.separate_images)
+            image_names[img.id] = compiler->get_name(img.id);
+
         compiler->build_combined_image_samplers();
 
+        // Restore original image names for combined samplers (SPIRV-Cross
+        // auto-generates names like _255, but axmol C++ looks up e.g. "u_tex0")
+        for (const auto& combined : compiler->get_combined_image_samplers()) {
+            auto it = image_names.find(combined.image_id);
+            if (it != image_names.end() && !it->second.empty())
+                compiler->set_name(combined.combined_id, it->second);
+        }
+
         // Strip "input." / "output." prefix from varying names for GLES linker compatibility
-        auto resources = compiler->get_shader_resources();
-        for (const auto& r : resources.stage_inputs)
+        auto post_resources = compiler->get_shader_resources();
+        for (const auto& r : post_resources.stage_inputs)
             compiler->set_name(r.id, utils::clean_input_name(r.name));
-        for (const auto& r : resources.stage_outputs)
+        for (const auto& r : post_resources.stage_outputs)
             compiler->set_name(r.id, utils::clean_input_name(r.name));
     }
 
