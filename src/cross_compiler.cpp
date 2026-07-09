@@ -45,6 +45,13 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
 
     if (target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL) {
         compiler->build_combined_image_samplers();
+
+        // Strip "input." / "output." prefix from varying names for GLES linker compatibility
+        auto resources = compiler->get_shader_resources();
+        for (const auto& r : resources.stage_inputs)
+            compiler->set_name(r.id, utils::clean_input_name(r.name));
+        for (const auto& r : resources.stage_outputs)
+            compiler->set_name(r.id, utils::clean_input_name(r.name));
     }
 
     if (target.lang == axslc::SHADER_LANG_ESSL) {
