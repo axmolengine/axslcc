@@ -4,6 +4,7 @@
 #include "spirv_cross.hpp"
 #include "spirv_glsl.hpp"
 #include "spirv_hlsl.hpp"
+#include "spirv_msl.hpp"
 
 #include <memory>
 
@@ -23,6 +24,8 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& tar
 {
     if (target.lang == axslc::SHADER_LANG_HLSL)
         return std::make_unique<spirv_cross::CompilerHLSL>(spirv);
+    if (target.lang == axslc::SHADER_LANG_MSL)
+        return std::make_unique<spirv_cross::CompilerMSL>(spirv);
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
 }
 
@@ -36,6 +39,10 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     auto compiler = make_cross_compiler(target, spirv);
     auto options = compiler->get_common_options();
     options.flatten_multidimensional_arrays = true;
+
+    if (target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL) {
+        compiler->build_combined_image_samplers();
+    }
 
     if (target.lang == axslc::SHADER_LANG_ESSL) {
         options.es = true;
@@ -60,6 +67,12 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
 
         for (uint32_t i = 0; i < std::size(kAttribNames); ++i)
             hlsl->add_vertex_attribute_remap({i, std::string(kAttribNames[i])});
+    } else if (target.lang == axslc::SHADER_LANG_MSL) {
+        auto* msl = static_cast<spirv_cross::CompilerMSL*>(compiler.get());
+        auto msl_options = msl->get_msl_options();
+        msl_options.platform = spirv_cross::CompilerMSL::Options::iOS;
+        msl_options.msl_version = static_cast<uint32_t>(target.profile);
+        msl->set_msl_options(msl_options);
     }
 
     compiler->set_common_options(options);

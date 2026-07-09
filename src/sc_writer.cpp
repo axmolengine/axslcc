@@ -18,18 +18,7 @@ constexpr uint16_t kScMinor = AXSLCC_MINOR;
 
 uint32_t sc_lang(const Target& target)
 {
-    switch (target.lang) {
-    case axslc::SHADER_LANG_ESSL:
-        return SC_LANG_GLES;
-    case axslc::SHADER_LANG_HLSL:
-        return SC_LANG_HLSL;
-    case axslc::SHADER_LANG_GLSL:
-        return SC_LANG_GLSL;
-    case axslc::SHADER_LANG_SPIRV:
-        return SC_LANG_SPIRV;
-    default:
-        return 0;
-    }
+    return static_cast<uint32_t>(target.lang);
 }
 
 uint32_t sc_stage(ShaderStage stage)

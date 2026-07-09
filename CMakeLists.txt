@@ -131,6 +131,7 @@ target_link_libraries(axslcc PRIVATE
     glslang::glslang-default-resource-limits
     spirv-cross-glsl
     spirv-cross-hlsl
+    spirv-cross-msl
 )
 
 target_include_directories(axslcc PRIVATE 3rdparty/yasio)

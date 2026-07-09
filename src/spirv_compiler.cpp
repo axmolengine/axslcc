@@ -24,18 +24,21 @@ constexpr std::string_view kAttribNames[] = {
     "COLOR2", "COLOR3", "TANGENT", "BINORMAL", "BLENDINDICES", "BLENDWEIGHT",
 };
 
-std::string build_preamble(const Options& options)
+std::string build_preamble(const Options& options, glslang::EShSource source)
 {
-    std::string preamble = "#extension GL_GOOGLE_include_directive : require\n";
-    for (size_t i = 0; i < std::size(kAttribNames); ++i) {
-        preamble += "#define ";
-        preamble += kAttribNames[i];
-        preamble += " ";
-        preamble += std::to_string(i);
-        preamble += "\n";
+    std::string preamble;
+    if (source != glslang::EShSourceHlsl) {
+        preamble += "#extension GL_GOOGLE_include_directive : require\n";
+        for (size_t i = 0; i < std::size(kAttribNames); ++i) {
+            preamble += "#define ";
+            preamble += kAttribNames[i];
+            preamble += " ";
+            preamble += std::to_string(i);
+            preamble += "\n";
+        }
+        for (int i = 0; i < 8; ++i)
+            preamble += "#define SV_Target" + std::to_string(i) + " " + std::to_string(i) + "\n";
     }
-    for (int i = 0; i < 8; ++i)
-        preamble += "#define SV_Target" + std::to_string(i) + " " + std::to_string(i) + "\n";
 
     for (const auto& define : options.defines) {
         auto eq = define.find('=');
@@ -55,7 +58,7 @@ bool compile_to_spirv(const Options& options, std::string_view source_text, EShL
 {
     glslang::TShader shader(stage);
     std::string input_name = options.input.string();
-    std::string preamble = build_preamble(options);
+    std::string preamble = build_preamble(options, source);
     const char* source_ptr = source_text.data();
     int source_len = static_cast<int>(source_text.size());
     const char* name_ptr = input_name.c_str();
@@ -126,6 +129,11 @@ bool compile_to_spirv(const Options& options, std::string_view source_text, EShL
 
 CompileUnit compile_input(const Options& options)
 {
+    if (auto stage_opt = utils::stage_from_name(options.input); !stage_opt) {
+        throw std::runtime_error("cannot determine shader stage from filename '" +
+                                 options.input.string() + "' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)");
+    }
+
     std::string source_text = utils::read_text_file(options.input);
     glslang::EShSource source = utils::is_hlsl_source(options.input) ? glslang::EShSourceHlsl : glslang::EShSourceGlsl;
     std::vector<EShLanguage> candidates;
