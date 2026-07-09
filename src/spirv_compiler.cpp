@@ -24,7 +24,7 @@ constexpr std::string_view kAttribNames[] = {
     "COLOR2", "COLOR3", "TANGENT", "BINORMAL", "BLENDINDICES", "BLENDWEIGHT",
 };
 
-std::string build_preamble(const Options& options, glslang::EShSource source)
+std::string build_preamble(const std::vector<std::string>& defines, glslang::EShSource source)
 {
     std::string preamble;
     if (source != glslang::EShSourceHlsl) {
@@ -40,7 +40,7 @@ std::string build_preamble(const Options& options, glslang::EShSource source)
             preamble += "#define SV_Target" + std::to_string(i) + " " + std::to_string(i) + "\n";
     }
 
-    for (const auto& define : options.defines) {
+    for (const auto& define : defines) {
         auto eq = define.find('=');
         preamble += "#define ";
         preamble += eq == std::string::npos ? define : define.substr(0, eq);
@@ -53,12 +53,13 @@ std::string build_preamble(const Options& options, glslang::EShSource source)
     return preamble;
 }
 
-bool compile_to_spirv(const Options& options, std::string_view source_text, EShLanguage stage,
+bool compile_to_spirv(const Options& options, const std::vector<std::string>& defines,
+    std::string_view source_text, EShLanguage stage,
     glslang::EShSource source, std::vector<uint32_t>& spirv, std::string& log)
 {
     glslang::TShader shader(stage);
     std::string input_name = options.input.string();
-    std::string preamble = build_preamble(options, source);
+    std::string preamble = build_preamble(defines, source);
     const char* source_ptr = source_text.data();
     int source_len = static_cast<int>(source_text.size());
     const char* name_ptr = input_name.c_str();
@@ -74,7 +75,7 @@ bool compile_to_spirv(const Options& options, std::string_view source_text, EShL
     shader.setAutoMapLocations(true);
 
     std::vector<std::string> processes;
-    for (const auto& define : options.defines) {
+    for (const auto& define : defines) {
         auto eq = define.find('=');
         processes.push_back("D" + (eq == std::string::npos ? define : define.substr(0, eq)));
     }
@@ -127,7 +128,7 @@ bool compile_to_spirv(const Options& options, std::string_view source_text, EShL
 
 } // namespace
 
-CompileUnit compile_input(const Options& options)
+CompileUnit compile_input(const Options& options, const Target& target)
 {
     if (auto stage_opt = utils::stage_from_name(options.input); !stage_opt) {
         throw std::runtime_error("cannot determine shader stage from filename '" +
@@ -154,11 +155,14 @@ CompileUnit compile_input(const Options& options)
         candidates = {EShLangVertex, EShLangFragment, EShLangCompute};
     }
 
+    auto all_defines = options.defines;
+    all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
     std::string combined_log;
     for (EShLanguage stage : candidates) {
         std::vector<uint32_t> spirv;
         std::string log;
-        if (compile_to_spirv(options, source_text, stage, source, spirv, log)) {
+        if (compile_to_spirv(options, all_defines, source_text, stage, source, spirv, log)) {
             CompileUnit unit;
             switch (stage) {
             case EShLangVertex:

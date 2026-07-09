@@ -142,6 +142,31 @@ void print_version()
               << "Axslcc suite maintiained and supported by axmol community (axmol.dev)\n";
 }
 
+static void fill_builtin_target_defines(std::vector<Target>& targets)
+{
+    for (auto& t : targets) {
+        switch (t.lang) {
+        case axslc::SHADER_LANG_HLSL:
+            t.defines = {"AXSLC_TARGET_HLSL=1", "AXSLC_UV_TOP=1"};
+            break;
+        case axslc::SHADER_LANG_MSL:
+            t.defines = {"AXSLC_TARGET_MSL=1", "AXSLC_UV_TOP=1"};
+            break;
+        case axslc::SHADER_LANG_SPIRV:
+            t.defines = {"AXSLC_TARGET_SPIRV=1", "AXSLC_UV_TOP=1"};
+            break;
+        case axslc::SHADER_LANG_ESSL:
+            t.defines = {"AXSLC_TARGET_GLSL=1", "AXSLC_UV_TOP=0", "AXSLC_TARGET_ESSL=1"};
+            break;
+        case axslc::SHADER_LANG_GLSL:
+            t.defines = {"AXSLC_TARGET_GLSL=1", "AXSLC_UV_TOP=0"};
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 Target parse_target(std::string_view text)
 {
     auto dash = text.find('-');
@@ -259,6 +284,8 @@ Options parse_args(int argc, char** argv)
                 throw std::runtime_error("--migrate only supports HLSL output targets");
         }
     }
+
+    fill_builtin_target_defines(options.targets);
 
     return options;
 }

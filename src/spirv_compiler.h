@@ -11,7 +11,7 @@ namespace axslcc::spirv
 
 // ============= SPIRV Compilation =============
 
-CompileUnit compile_input(const Options& options);
+CompileUnit compile_input(const Options& options, const Target& target);
 
 tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv);
 

@@ -30,6 +30,7 @@ struct Target
     axslc::ShaderLang lang = axslc::SHADER_LANG_GLSL;
     int profile = 0;
     std::string spec;
+    std::vector<std::string> defines;  // per-target builtin preprocessor defines
 };
 
 struct Options

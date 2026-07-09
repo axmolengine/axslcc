@@ -33,20 +33,19 @@ void Compiler::compile(const Options& options)
         throw std::runtime_error("Cannot determine shader stage: " + options.input.string());
     auto stage = *stage_opt;
 
-    CompileUnit unit;
-    try {
-        unit = spirv::compile_input(options);
-    }
-    catch (const std::exception& e) {
-        std::cerr << "axslcc: error compiling " << options.input.filename().string()
-                  << ":\n  " << e.what() << std::endl;
-        throw;
-    }
-
     std::vector<OutputBlob> outputs;
     std::vector<tlx::byte_buffer> reflections;
 
     for (const auto& target : options.targets) {
+        CompileUnit unit;
+        try {
+            unit = spirv::compile_input(options, target);
+        } catch (const std::exception& e) {
+            std::cerr << "axslcc: error compiling " << options.input.filename().string()
+                      << " for target " << target.spec << ":\n  " << e.what() << std::endl;
+            throw;
+        }
+
         auto blob = cross::cross_compile(target, unit.spirv, options.input);
 
 #ifdef _WIN32
@@ -75,7 +74,7 @@ void Compiler::compile(const Options& options)
     }
 
     if (options.sc) {
-        sc_writer::write_sc(options, unit.stage, outputs, reflections);
+        sc_writer::write_sc(options, stage, outputs, reflections);
     } else {
         for (const auto& output : outputs)
             utils::write_file(utils::output_path_for_target(options, output.target), output.data);
