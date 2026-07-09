@@ -14,12 +14,6 @@ namespace axslcc::cross
 namespace
 {
 
-constexpr std::string_view kAttribNames[] = {
-    "POSITION", "NORMAL", "TEXCOORD0", "TEXCOORD1", "TEXCOORD2", "TEXCOORD3",
-    "TEXCOORD4", "TEXCOORD5", "TEXCOORD6", "TEXCOORD7", "COLOR0", "COLOR1",
-    "COLOR2", "COLOR3", "TANGENT", "BINORMAL", "BLENDINDICES", "BLENDWEIGHT",
-};
-
 std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& target, const std::vector<uint32_t>& spirv)
 {
     if (target.lang == axslc::SHADER_LANG_HLSL)
@@ -58,15 +52,13 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         hlsl_options.point_size_compat = true;
         hlsl_options.point_coord_compat = true;
         hlsl_options.flatten_matrix_vertex_input_semantics = true;
+        hlsl_options.user_semantic = true;
         hlsl->set_hlsl_options(hlsl_options);
 
         if (uint32_t builtin = hlsl->remap_num_workgroups_builtin()) {
             hlsl->set_decoration(builtin, spv::DecorationDescriptorSet, 0);
             hlsl->set_decoration(builtin, spv::DecorationBinding, 0);
         }
-
-        for (uint32_t i = 0; i < std::size(kAttribNames); ++i)
-            hlsl->add_vertex_attribute_remap({i, std::string(kAttribNames[i])});
     } else if (target.lang == axslc::SHADER_LANG_MSL) {
         auto* msl = static_cast<spirv_cross::CompilerMSL*>(compiler.get());
         auto msl_options = msl->get_msl_options();
