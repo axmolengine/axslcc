@@ -286,14 +286,13 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data)
 
 std::optional<ShaderStage> stage_from_name(const fs::path& input)
 {
-    std::string ext = lower(input.extension().string());
     std::string stem = lower(input.stem().string());
 
-    if (ext == ".vert" || ext == ".vs" || ext == ".vsh" || stem.ends_with("_vs") || stem.ends_with(".vs"))
+    if (stem.ends_with("_vs"))
         return ShaderStage::Vertex;
-    if (ext == ".frag" || ext == ".fs" || ext == ".fsh" || ext == ".ps" || stem.ends_with("_fs") || stem.ends_with("_ps"))
+    if (stem.ends_with("_ps"))
         return ShaderStage::Fragment;
-    if (ext == ".comp" || ext == ".cs" || stem.ends_with("_cs"))
+    if (stem.ends_with("_cs"))
         return ShaderStage::Compute;
 
     return std::nullopt;

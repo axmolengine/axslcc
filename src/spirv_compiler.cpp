@@ -131,7 +131,7 @@ CompileUnit compile_input(const Options& options)
 {
     if (auto stage_opt = utils::stage_from_name(options.input); !stage_opt) {
         throw std::runtime_error("cannot determine shader stage from filename '" +
-                                 options.input.string() + "' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)");
+                                 options.input.string() + "' (expected _vs/_ps/_cs suffix)");
     }
 
     std::string source_text = utils::read_text_file(options.input);
