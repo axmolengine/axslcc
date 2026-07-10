@@ -123,7 +123,7 @@ void print_help()
         << "  axslcc --input <file> [--output <path>] --target=<targets> [--sc] [--reflect]\n"
         << "  axslcc --input <glsl> --output <path> --target=d3d12 --migrate\n\n"
         << "Targets:\n"
-        << "  d3d11, d3d12, essl-300, glsl-330, spirv-100, msl-20000, msl-30000\n\n"
+        << "  d3d11, d3d12, vk, mtl, gl, gles\n\n"
         << "Options:\n"
         << "  --input <file>      Input HLSL 5.1 or GLSL file\n"
         << "  --output <path>     Output file or basename. Defaults to input stem\n"
@@ -183,6 +183,34 @@ Target parse_target(std::string_view text)
         target.lang = axslc::SHADER_LANG_HLSL;
         target.profile = 51;
         target.spec = "d3d12";
+        return target;
+    }
+    if (text == "vk") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_SPIRV;
+        target.profile = 100;
+        target.spec = "vk";
+        return target;
+    }
+    if (text == "mtl") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_MSL;
+        target.profile = 20000;
+        target.spec = "mtl";
+        return target;
+    }
+    if (text == "gl") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_GLSL;
+        target.profile = 330;
+        target.spec = "gl";
+        return target;
+    }
+    if (text == "gles") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_ESSL;
+        target.profile = 300;
+        target.spec = "gles";
         return target;
     }
 
