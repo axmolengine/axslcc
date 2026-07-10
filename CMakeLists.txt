@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.23..4.3)
 project(axslcc)
 
+message(STATUS "=== Generator: ${CMAKE_GENERATOR} ===")
+
  if (WIN32)
     set (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
     set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
