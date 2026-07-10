@@ -8,6 +8,7 @@
 #ifdef _WIN32
 #include "dxc_compiler.h"
 #include "fxc_compiler.h"
+#include <d3d12shader.h>
 #endif
 
 #include "glslang/Public/ShaderLang.h"
@@ -42,14 +43,12 @@ void Compiler::compile(const Options& options)
 #ifdef _WIN32
     if (options.dxbc)
     {
-        // Mark HLSL targets as binary bytecode
         for (auto& t : targets)
         {
             if (t.lang == axslc::SHADER_LANG_HLSL)
                 t.binary = true;
         }
 
-        // Expand d3d12 into SM5.1 (FXC/DXBC) + SM6.0 (DXC/DXIL)
         for (size_t i = 0; i < targets.size(); ++i)
         {
             if (targets[i].spec == "d3d12")
@@ -72,56 +71,72 @@ void Compiler::compile(const Options& options)
 
     for (const auto& target : targets)
     {
-        CompileUnit unit;
-        try {
-            unit = spirv::compile_input(options, target);
-        } catch (const std::exception& e) {
-            std::cerr << "axslcc: error compiling " << options.input.filename().string()
-                      << " for target " << target.spec << ":\n  " << e.what() << std::endl;
-            throw;
-        }
-
-        auto blob = cross::cross_compile(target, unit.spirv, options.input);
+        OutputBlob blob;
+        blob.target = target;
 
 #ifdef _WIN32
         if (target.binary)
         {
-            std::string hlslSource(reinterpret_cast<const char*>(blob.data.data()), blob.data.size());
+            auto source = utils::read_text_file(options.input);
 
-            try
+            auto all_defines = options.defines;
+            all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+            if (target.profile <= 51)
             {
-                auto all_defines = options.defines;
-                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+                auto fxcResult = fxc::compile_hlsl(source, stage,
+                                                     options.include_dirs, all_defines,
+                                                     target.profile, options.input);
+                blob.data = std::move(fxcResult.dxbc);
+                blob.binary = true;
 
-                if (target.profile <= 51) // SM5.0/SM5.1 via FXC → DXBC
+                if (options.reflect)
                 {
-                    auto fxcResult = fxc::compile_hlsl(hlslSource, unit.stage,
-                                                        options.include_dirs, all_defines,
-                                                        target.profile, options.input);
-                    blob.data = std::move(fxcResult.dxbc);
-                    blob.binary = true;
-                }
-                else // SM6.0 via DXC → DXIL
-                {
-                    auto dxcResult = dxc::compile_source(hlslSource, unit.stage,
-                                                          options.include_dirs, all_defines,
-                                                          target.profile, nullptr, options.input);
-                    blob.data = std::move(dxcResult.dxil);
-                    blob.binary = true;
+                    ID3D12ShaderReflection* shaderRefl = nullptr;
+                    dxc::compile_source(source, stage,
+                                         options.include_dirs, all_defines,
+                                         60, &shaderRefl, options.input);
+                    reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
+                    if (shaderRefl) shaderRefl->Release();
                 }
             }
-            catch (const std::exception& e)
+            else
             {
-                std::cerr << "[dxbc] bytecode compile failed for " << options.input.filename().string()
-                          << " (" << target.spec << "): " << e.what() << std::endl;
-                throw;
+                ID3D12ShaderReflection* shaderRefl = nullptr;
+                auto dxcResult = dxc::compile_source(source, stage,
+                                                      options.include_dirs, all_defines,
+                                                      target.profile,
+                                                      options.reflect ? &shaderRefl : nullptr,
+                                                      options.input);
+                blob.data = std::move(dxcResult.dxil);
+                blob.binary = true;
+
+                if (options.reflect)
+                {
+                    reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
+                    if (shaderRefl) shaderRefl->Release();
+                }
             }
         }
+        else
 #endif
+        {
+            CompileUnit unit;
+            try {
+                unit = spirv::compile_input(options, target);
+            } catch (const std::exception& e) {
+                std::cerr << "axslcc: error compiling " << options.input.filename().string()
+                          << " for target " << target.spec << ":\n  " << e.what() << std::endl;
+                throw;
+            }
+
+            blob = cross::cross_compile(target, unit.spirv, options.input);
+
+            if (options.reflect)
+                reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
+        }
 
         outputs.push_back(std::move(blob));
-        if (options.reflect)
-            reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
     }
 
     if (options.sc) {

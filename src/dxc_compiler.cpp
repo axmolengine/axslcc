@@ -19,10 +19,20 @@ const wchar_t* profile_for_stage(ShaderStage stage, int sm)
 {
     switch (stage)
     {
-    case ShaderStage::Vertex:   return sm == 60 ? L"vs_6_0" : L"vs_6_0";
-    case ShaderStage::Fragment: return sm == 60 ? L"ps_6_0" : L"ps_6_0";
-    case ShaderStage::Compute:  return sm == 60 ? L"cs_6_0" : L"cs_6_0";
-    default:                    return L"vs_6_0";
+    case ShaderStage::Vertex:
+        if (sm == 50) return L"vs_5_0";
+        if (sm == 51) return L"vs_5_1";
+        return L"vs_6_0";
+    case ShaderStage::Fragment:
+        if (sm == 50) return L"ps_5_0";
+        if (sm == 51) return L"ps_5_1";
+        return L"ps_6_0";
+    case ShaderStage::Compute:
+        if (sm == 50) return L"cs_5_0";
+        if (sm == 51) return L"cs_5_1";
+        return L"cs_6_0";
+    default:
+        return L"vs_6_0";
     }
 }
 

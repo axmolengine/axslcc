@@ -9,9 +9,53 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <fstream>
+#include <vector>
 
 namespace axslcc::fxc
 {
+
+namespace
+{
+
+class DirIncludeHandler : public ID3DInclude
+{
+    std::vector<fs::path> _dirs;
+    fs::path _sourceDir;
+public:
+    DirIncludeHandler(const std::vector<fs::path>& dirs, const fs::path& sourcePath)
+        : _dirs(dirs)
+    {
+        if (!sourcePath.empty())
+            _dirs.push_back(sourcePath.parent_path());
+    }
+
+    HRESULT STDMETHODCALLTYPE Open(D3D_INCLUDE_TYPE /*includeType*/, LPCSTR pFileName,
+                                    LPCVOID /*pParentData*/, LPCVOID* ppData, UINT* pBytes) override
+    {
+        for (const auto& dir : _dirs)
+        {
+            fs::path full = dir / pFileName;
+            std::ifstream f(full, std::ios::binary | std::ios::ate);
+            if (!f)
+                continue;
+            auto size = f.tellg();
+            f.seekg(0, std::ios::beg);
+            char* buf = (char*)malloc(static_cast<size_t>(size));
+            f.read(buf, size);
+            *ppData = buf;
+            *pBytes = static_cast<UINT>(size);
+            return S_OK;
+        }
+        return E_FAIL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Close(LPCVOID pData) override
+    {
+        free((void*)pData);
+        return S_OK;
+    }
+};
 
 static const char* profile_for_stage(ShaderStage stage, int sm)
 {
@@ -28,13 +72,14 @@ static const char* profile_for_stage(ShaderStage stage, int sm)
     }
 }
 
+} // namespace
+
 FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
                         const std::vector<fs::path>& includeDirs,
                         const std::vector<std::string>& defines,
                         int profile,
                         const fs::path& sourceName)
 {
-    // Build D3D_SHADER_MACRO array
     std::vector<D3D_SHADER_MACRO> macros;
     for (const auto& def : defines)
     {
@@ -50,6 +95,8 @@ FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
+    DirIncludeHandler includeHandler(includeDirs, sourceName);
+
     ID3DBlob* blob = nullptr;
     ID3DBlob* errorBlob = nullptr;
 
@@ -59,13 +106,12 @@ FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
         hlsl.data(), hlsl.size(),
         srcName.c_str(),
         macros.data(),
-        nullptr,        // D3D_COMPILE_STANDARD_FILE_INCLUDE
+        &includeHandler,
         "main",
         profile_for_stage(stage, profile),
         flags, 0,
         &blob, &errorBlob);
 
-    // Free macro strings
     for (auto& m : macros)
     {
         if (m.Name) free((void*)m.Name);
