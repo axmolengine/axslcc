@@ -170,52 +170,42 @@ static void fill_builtin_target_defines(std::vector<Target>& targets)
 
 Target parse_target(std::string_view text)
 {
-    // New-style platform targets (no profile suffix)
-    if (text == "d3d11") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_HLSL;
-        target.profile = 50;
-        target.spec = "d3d11";
-        return target;
-    }
-    if (text == "d3d12") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_HLSL;
-        target.profile = 51;
-        target.spec = "d3d12";
-        return target;
-    }
-    if (text == "vk") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_SPIRV;
-        target.profile = 100;
-        target.spec = "vk";
-        return target;
-    }
-    if (text == "mtl") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_MSL;
-        target.profile = 20000;
-        target.spec = "mtl";
-        return target;
-    }
-    if (text == "gl") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_GLSL;
-        target.profile = 330;
-        target.spec = "gl";
-        return target;
-    }
-    if (text == "gles") {
-        Target target;
-        target.lang = axslc::SHADER_LANG_ESSL;
-        target.profile = 300;
-        target.spec = "gles";
-        return target;
+    struct PlatformEntry {
+        std::string_view name;
+        axslc::ShaderLang lang;
+        int defaultProfile;
+    };
+    static constexpr PlatformEntry kPlatforms[] = {
+        {"d3d11", axslc::SHADER_LANG_HLSL,  50},
+        {"d3d12", axslc::SHADER_LANG_HLSL,  51},
+        {"vk",    axslc::SHADER_LANG_SPIRV, 100},
+        {"mtl",   axslc::SHADER_LANG_MSL,   20000},
+        {"gl",    axslc::SHADER_LANG_GLSL,  330},
+        {"gles",  axslc::SHADER_LANG_ESSL,  300},
+    };
+
+    // New-style: platform[-version]
+    auto dash = text.find('-');
+    std::string_view platform = (dash != std::string_view::npos) ? text.substr(0, dash) : text;
+
+    for (const auto& entry : kPlatforms)
+    {
+        if (platform == entry.name)
+        {
+            Target target;
+            target.lang = entry.lang;
+            target.spec = std::string(text);
+
+            if (dash != std::string_view::npos)
+                target.profile = std::stoi(std::string(text.substr(dash + 1)));
+            else
+                target.profile = entry.defaultProfile;
+
+            return target;
+        }
     }
 
-    // Legacy format: lang-profile
-    auto dash = text.find('-');
+    // Legacy format: lang-profile (e.g. hlsl-50, spirv-100, msl-20000)
     if (dash == std::string_view::npos)
         throw std::runtime_error("unsupported target '" + std::string(text) + "'");
 
