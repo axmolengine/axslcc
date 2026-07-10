@@ -45,9 +45,11 @@ HLSL/GLSL source
        │
        ├── (--dxbc path, Windows only, HLSL input)
        │       │
-       │       ├── profile ≤ 51  →  FXC (D3DCompile) → DXBC bytecode
+       │       ├── d3d11  →  glslang → SPIR-V → SPIRV-Cross → FXC → DXBC bytecode
        │       │
-       │       └── profile ≥ 60  →  DXC (dxcompiler) → DXIL bytecode
+       │       ├── d3d12 sm51 →  FXC (raw HLSL) → DXBC bytecode
+       │       │
+       │       └── d3d12 sm60 →  DXC (raw HLSL) → DXIL bytecode
        │
        └── (source output path, all platforms)
                │
@@ -66,7 +68,13 @@ HLSL/GLSL source
           │  SPIRV-Cross  │  ── cross-compile to target language
           └────┬─────────┘
                │
+               ├── (reflection)  SPIRV-Cross reflection data  ← unified for all modes
+               │
                └── .sc container with text source (HLSL/GLSL/MSL/ESSL)
+
+d3d11 --dxbc is routed through SPIRV-Cross first to down-convert SM 5.1 syntax
+to SM 5.0 compatible HLSL before FXC compilation. d3d12 --dxbc bypasses SPIRV-Cross
+entirely for raw native compilation speed.
 ```
 
 `--dxbc` bytecode compilation bypasses glslang and SPIRV-Cross entirely, feeding raw HLSL directly to FXC or DXC. All `#include` resolution is handled by the respective compiler's preprocessor.
