@@ -73,13 +73,19 @@ jobs:
     - name: build
       shell: pwsh
       run: |
+        cmake --version
         cmake -B build -DCMAKE_BUILD_TYPE=Release  -DCMAKE_OSX_ARCHITECTURES=arm64 "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15"
         cmake --build build --config Release --target axslcc
-        lipo -info ./build/src/axslcc
+        $bin = Get-ChildItem -Recurse -Path build -Filter axslcc -File | Select-Object -First 1
+        if (-not $bin) { throw "axslcc binary not found" }
+        Write-Host "Binary found at: $($bin.FullName)"
+        lipo -info $bin.FullName
+        echo "binary-path=$($bin.FullName)" >> $env:GITHUB_OUTPUT
+      id: build
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/axslcc
+        path: ${{ steps.build.outputs.binary-path }}
         name: axslcc-osx-arm64
 
   osx-x64:
@@ -93,11 +99,17 @@ jobs:
     - name: build
       shell: pwsh
       run: |
+        cmake --version
         cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15"
         cmake --build build --config Release --target axslcc
-        lipo -info ./build/src/axslcc
+        $bin = Get-ChildItem -Recurse -Path build -Filter axslcc -File | Select-Object -First 1
+        if (-not $bin) { throw "axslcc binary not found" }
+        Write-Host "Binary found at: $($bin.FullName)"
+        lipo -info $bin.FullName
+        echo "binary-path=$($bin.FullName)" >> $env:GITHUB_OUTPUT
+      id: build
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/axslcc
+        path: ${{ steps.build.outputs.binary-path }}
         name: axslcc-osx-x64
