@@ -43,29 +43,44 @@ axslcc compiles HLSL/GLSL shaders through a multi-stage pipeline:
 ```
 HLSL/GLSL source
        │
-       ▼
-  ┌─────────┐
-  │ glslang  │  ── preprocessor (resolves #include, #define)
-  └────┬────┘
+       ├── (--dxbc path, Windows only, HLSL input)
+       │       │
+       │       ├── profile ≤ 51  →  FXC (D3DCompile) → DXBC bytecode
+       │       │
+       │       └── profile ≥ 60  →  DXC (dxcompiler) → DXIL bytecode
        │
-       ▼
-  ┌─────────┐
-  │  SPIR-V  │  ── intermediate binary IR
-  └────┬────┘
-       │
-       ▼
-  ┌──────────────┐
-  │  SPIRV-Cross  │  ── cross-compile to target language (HLSL/GLSL/MSL/ESSL)
-  └────┬─────────┘
-       │
-       ├── (source output) → .sc container with text source
-       │
-       └── (--dxbc path, Windows only)
-              │
-              ├── profile ≤ 51  →  FXC (D3DCompile) → DXBC bytecode (SM 5.0 / 5.1)
-              │
-              └── profile ≥ 60  →  DXC (dxcompiler) → DXIL bytecode (SM 6.0)
+       └── (source output path, all platforms)
+               │
+               ▼
+          ┌─────────┐
+          │ glslang  │  ── preprocessor (resolves #include, #define)
+          └────┬────┘
+               │
+               ▼
+          ┌─────────┐
+          │  SPIR-V  │  ── intermediate binary IR
+          └────┬────┘
+               │
+               ▼
+          ┌──────────────┐
+          │  SPIRV-Cross  │  ── cross-compile to target language
+          └────┬─────────┘
+               │
+               └── .sc container with text source (HLSL/GLSL/MSL/ESSL)
 ```
+
+`--dxbc` bytecode compilation bypasses glslang and SPIRV-Cross entirely, feeding raw HLSL directly to FXC or DXC. All `#include` resolution is handled by the respective compiler's preprocessor.
+
+### Reflection
+
+Reflection data (vertex inputs, constant buffers, textures) uses different paths:
+
+| Mode | Reflection Source |
+|------|------------------|
+| Source output | SPIRV-Cross reflection (from SPIR-V) |
+| `--dxbc` bytecode | DXC reflection at SM6.0 (for all profiles) |
+
+For `--dxbc`, DXC is invoked at SM6.0 just for reflection extraction, even when the actual bytecode comes from FXC at SM5.x. The reflection data is embedded in the `REFL` chunk.
 
 ### Target Types
 
@@ -105,7 +120,7 @@ Reflection data (vertex inputs, constant buffers, textures) is generated via SPI
 
 | Backend | File | Purpose |
 |---------|------|---------|
-| glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) |
-| SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) |
-| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1, Windows only) |
-| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0, Windows only) |
+| glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) — source output path |
+| SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) — source output path |
+| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1) — `--dxbc` bytecode path |
+| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0) — `--dxbc` bytecode path; also used for DXC reflection on all profiles |
