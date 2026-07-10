@@ -18,7 +18,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/Release/axslcc.exe
+        path: ./build/Release/axslcc.exe
         name: axslcc-win-x64
   win-arm64:
     runs-on: windows-11-arm
@@ -32,7 +32,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/Release/axslcc.exe
+        path: ./build/Release/axslcc.exe
         name: axslcc-win-arm64
   linux-x64:
     runs-on: ubuntu-22.04
@@ -46,7 +46,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/axslcc
+        path: ./build/axslcc
         name: axslcc-linux-x64
   linux-arm64:
     runs-on: ubuntu-22.04-arm
@@ -60,7 +60,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
-        path: ./build/src/axslcc
+        path: ./build/axslcc
         name: axslcc-linux-arm64
   osx-arm64:
     runs-on: macos-15
