@@ -45,11 +45,10 @@ HLSL/GLSL source
        │
        ├── (--dxbc path, Windows only, HLSL input)
        │       │
-       │       ├── d3d11  →  glslang → SPIR-V → SPIRV-Cross → FXC → DXBC bytecode
-       │       │
-       │       ├── d3d12 sm51 →  FXC (raw HLSL) → DXBC bytecode
-       │       │
-       │       └── d3d12 sm60 →  DXC (raw HLSL) → DXIL bytecode
+       │       └── Unified → glslang → SPIR-V → SPIRV-Cross → clean HLSL
+       │               │
+       │               ├── profile <= 51 → FXC → DXBC bytecode
+       │               └── profile >= 60 → DXC → DXIL bytecode
        │
        └── (source output path, all platforms)
                │
@@ -72,12 +71,12 @@ HLSL/GLSL source
                │
                └── .sc container with text source (HLSL/GLSL/MSL/ESSL)
 
-d3d11 --dxbc is routed through SPIRV-Cross first to down-convert SM 5.1 syntax
-to SM 5.0 compatible HLSL before FXC compilation. d3d12 --dxbc bypasses SPIRV-Cross
-entirely for raw native compilation speed.
+All --dxbc paths now route through SPIRV-Cross first. This ensures that
+glslang-specific annotations like [[vk::builtin("PointSize")]] are stripped
+before the HLSL output is fed to DXC/FXC, which do not recognize them.
 ```
 
-`--dxbc` bytecode compilation bypasses glslang and SPIRV-Cross entirely, feeding raw HLSL directly to FXC or DXC. All `#include` resolution is handled by the respective compiler's preprocessor.
+`--dxbc` bytecode compilation routes all targets through the full pipeline: glslang → SPIR-V → SPIRV-Cross → clean HLSL → FXC/DXC. The SPIRV-Cross step strips Vulkan-specific annotations like `[[vk::builtin(...)]]` from the HLSL output, ensuring compatibility with DXC/FXC.
 
 ### Reflection
 

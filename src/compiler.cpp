@@ -76,59 +76,37 @@ void Compiler::compile(const Options& options)
 #ifdef _WIN32
         if (target.binary)
         {
-            if (target.spec == "d3d11")
+            // Unified binary path: HLSL → glslang → SPIR-V → SPIRV-Cross → clean HLSL → DXC/FXC → binary
+            // SPIRV-Cross strips [[vk::builtin(...)]] annotations that DXC/FXC don't recognize
+            CompileUnit unit;
+            unit = spirv::compile_input(options, target);
+
+            auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
+            std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()),
+                                   crossBlob.data.size());
+
+            auto all_defines = options.defines;
+            all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+            if (target.profile <= 51)
             {
-                // d3d11: SPIRV-Cross converts SM5.1->SM5.0 compatible HLSL, then FXC compiles to DXBC
-                CompileUnit unit;
-                unit = spirv::compile_input(options, target);
-
-                auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
-                std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()),
-                                       crossBlob.data.size());
-
-                auto all_defines = options.defines;
-                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
-
                 auto fxcResult = fxc::compile_hlsl(hlslSource, stage,
                                                      options.include_dirs, all_defines,
                                                      target.profile, options.input);
                 blob.data = std::move(fxcResult.dxbc);
                 blob.binary = true;
-
-                if (options.reflect)
-                    reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
             }
             else
             {
-                // d3d12: bypass SPIRV-Cross, compile raw HLSL directly
-                auto source = utils::read_text_file(options.input);
-
-                auto all_defines = options.defines;
-                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
-
-                if (target.profile <= 51)
-                {
-                    auto fxcResult = fxc::compile_hlsl(source, stage,
-                                                         options.include_dirs, all_defines,
-                                                         target.profile, options.input);
-                    blob.data = std::move(fxcResult.dxbc);
-                    blob.binary = true;
-                }
-                else
-                {
-                    auto dxcResult = dxc::compile_source(source, stage,
-                                                          options.include_dirs, all_defines,
-                                                          target.profile, options.input);
-                    blob.data = std::move(dxcResult.dxil);
-                    blob.binary = true;
-                }
-
-                if (options.reflect)
-                {
-                    auto reflUnit = spirv::compile_input(options, target);
-                    reflections.push_back(reflection::build_reflection(target, reflUnit.spirv, reflUnit.stage, options.input));
-                }
+                auto dxcResult = dxc::compile_source(hlslSource, stage,
+                                                      options.include_dirs, all_defines,
+                                                      target.profile, options.input);
+                blob.data = std::move(dxcResult.dxil);
+                blob.binary = true;
             }
+
+            if (options.reflect)
+                reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
         }
         else
 #endif
