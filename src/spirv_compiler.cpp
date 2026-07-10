@@ -192,6 +192,77 @@ CompileUnit compile_input(const Options& options, const Target& target)
     throw std::runtime_error("compilation failed\n" + combined_log);
 }
 
+bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,
+                           std::vector<uint32_t>& spirv, std::string& log)
+{
+    EShLanguage eshStage;
+    switch (stage) {
+    case ShaderStage::Vertex:
+        eshStage = EShLangVertex;
+        break;
+    case ShaderStage::Fragment:
+        eshStage = EShLangFragment;
+        break;
+    case ShaderStage::Compute:
+        eshStage = EShLangCompute;
+        break;
+    default:
+        eshStage = EShLangFragment;
+        break;
+    }
+
+    glslang::TShader shader(eshStage);
+    const char* source_ptr = source_text.data();
+    int source_len = static_cast<int>(source_text.size());
+    const char* name_ptr = "glsl_src";
+
+    shader.setStringsWithLengthsAndNames(&source_ptr, &source_len, &name_ptr, 1);
+    shader.setEntryPoint("main");
+    shader.setSourceEntryPoint("main");
+    shader.setEnvInput(glslang::EShSourceGlsl, eshStage, glslang::EShClientVulkan, 100);
+    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_1);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+    shader.setAutoMapBindings(true);
+    shader.setAutoMapLocations(true);
+
+    EShMessages messages = static_cast<EShMessages>(EShMsgDefault | EShMsgSpvRules | EShMsgVulkanRules);
+
+    if (!shader.parse(GetDefaultResources(), 100, false, messages)) {
+        log = shader.getInfoLog();
+        if (const char* debug = shader.getInfoDebugLog(); debug && *debug) {
+            log += "\n";
+            log += debug;
+        }
+        return false;
+    }
+
+    glslang::TProgram program;
+    program.addShader(&shader);
+    if (!program.link(messages)) {
+        log = program.getInfoLog();
+        if (const char* debug = program.getInfoDebugLog(); debug && *debug) {
+            log += "\n";
+            log += debug;
+        }
+        return false;
+    }
+
+    const glslang::TIntermediate* intermediate = program.getIntermediate(eshStage);
+    if (!intermediate) {
+        log = "glslang did not produce an intermediate representation from GLSL";
+        return false;
+    }
+
+    glslang::SpvOptions spv_options;
+    spv_options.generateDebugInfo = true;
+    spv_options.validate = false;
+    spv_options.emitNonSemanticShaderDebugInfo = true;
+    spv::SpvBuildLogger logger;
+    glslang::GlslangToSpv(*intermediate, spirv, &logger, &spv_options);
+    log = logger.getAllMessages();
+    return !spirv.empty();
+}
+
 tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv)
 {
     tlx::byte_buffer bytes(spirv.size() * sizeof(uint32_t));
