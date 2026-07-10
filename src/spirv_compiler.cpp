@@ -82,9 +82,9 @@ bool compile_to_spirv(const Options& options, const std::vector<std::string>& de
     shader.addProcesses(processes);
 
     DirStackFileIncluder includer;
-    includer.pushExternalLocalDirectory(options.input.parent_path().empty() ? "." : options.input.parent_path().string());
+    includer.pushExternalDirectory(options.input.parent_path().empty() ? "." : options.input.parent_path().string());
     for (const auto& include_dir : options.include_dirs)
-        includer.pushExternalLocalDirectory(include_dir.string());
+        includer.pushExternalDirectory(include_dir.string());
 
     EShMessages messages = static_cast<EShMessages>(EShMsgDefault | EShMsgSpvRules | EShMsgVulkanRules);
     if (source == glslang::EShSourceHlsl)

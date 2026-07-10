@@ -73,14 +73,23 @@ void Compiler::compile(const Options& options)
         OutputBlob blob;
         blob.target = target;
 
+        // Unified binary path: HLSL -> glslang -> SPIR-V -> SPIRV-Cross -> clean HLSL -> DXC/FXC -> binary
+        // SPIRV-Cross strips [[vk::builtin(...)]] annotations that DXC/FXC don't recognize
+        CompileUnit unit;
+        try
+        {
+            unit = spirv::compile_input(options, target);
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "axslcc: error compiling " << options.input.filename().string() << " for target "
+                      << target.spec << ":\n  " << e.what() << std::endl;
+            throw;
+        }
+
 #ifdef _WIN32
         if (target.binary)
         {
-            // Unified binary path: HLSL → glslang → SPIR-V → SPIRV-Cross → clean HLSL → DXC/FXC → binary
-            // SPIRV-Cross strips [[vk::builtin(...)]] annotations that DXC/FXC don't recognize
-            CompileUnit unit;
-            unit = spirv::compile_input(options, target);
-
             auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
             std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()),
                                    crossBlob.data.size());
@@ -111,15 +120,6 @@ void Compiler::compile(const Options& options)
         else
 #endif
         {
-            CompileUnit unit;
-            try {
-                unit = spirv::compile_input(options, target);
-            } catch (const std::exception& e) {
-                std::cerr << "axslcc: error compiling " << options.input.filename().string()
-                          << " for target " << target.spec << ":\n  " << e.what() << std::endl;
-                throw;
-            }
-
             blob = cross::cross_compile(target, unit.spirv, options.input);
 
             if (options.reflect)
