@@ -77,44 +77,70 @@ void Compiler::compile(const Options& options)
 #ifdef _WIN32
         if (target.binary)
         {
-            auto source = utils::read_text_file(options.input);
-
-            auto all_defines = options.defines;
-            all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
-
-            if (target.profile <= 51)
+            if (target.spec == "d3d11")
             {
-                auto fxcResult = fxc::compile_hlsl(source, stage,
+                // d3d11: SPIRV-Cross converts SM5.1→SM5.0 compatible HLSL, then FXC compiles to DXBC
+                CompileUnit unit;
+                unit = spirv::compile_input(options, target);
+
+                auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
+                std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()),
+                                       crossBlob.data.size());
+
+                auto all_defines = options.defines;
+                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+                auto fxcResult = fxc::compile_hlsl(hlslSource, stage,
                                                      options.include_dirs, all_defines,
                                                      target.profile, options.input);
                 blob.data = std::move(fxcResult.dxbc);
                 blob.binary = true;
 
                 if (options.reflect)
-                {
-                    ID3D12ShaderReflection* shaderRefl = nullptr;
-                    dxc::compile_source(source, stage,
-                                         options.include_dirs, all_defines,
-                                         60, &shaderRefl, options.input);
-                    reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
-                    if (shaderRefl) shaderRefl->Release();
-                }
+                    reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
             }
             else
             {
-                ID3D12ShaderReflection* shaderRefl = nullptr;
-                auto dxcResult = dxc::compile_source(source, stage,
-                                                      options.include_dirs, all_defines,
-                                                      target.profile,
-                                                      options.reflect ? &shaderRefl : nullptr,
-                                                      options.input);
-                blob.data = std::move(dxcResult.dxil);
-                blob.binary = true;
+                // d3d12: bypass SPIRV-Cross, compile raw HLSL directly
+                auto source = utils::read_text_file(options.input);
 
-                if (options.reflect)
+                auto all_defines = options.defines;
+                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+                if (target.profile <= 51)
                 {
-                    reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
-                    if (shaderRefl) shaderRefl->Release();
+                    auto fxcResult = fxc::compile_hlsl(source, stage,
+                                                         options.include_dirs, all_defines,
+                                                         target.profile, options.input);
+                    blob.data = std::move(fxcResult.dxbc);
+                    blob.binary = true;
+
+                    if (options.reflect)
+                    {
+                        ID3D12ShaderReflection* shaderRefl = nullptr;
+                        dxc::compile_source(source, stage,
+                                             options.include_dirs, all_defines,
+                                             60, &shaderRefl, options.input);
+                        reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
+                        if (shaderRefl) shaderRefl->Release();
+                    }
+                }
+                else
+                {
+                    ID3D12ShaderReflection* shaderRefl = nullptr;
+                    auto dxcResult = dxc::compile_source(source, stage,
+                                                          options.include_dirs, all_defines,
+                                                          target.profile,
+                                                          options.reflect ? &shaderRefl : nullptr,
+                                                          options.input);
+                    blob.data = std::move(dxcResult.dxil);
+                    blob.binary = true;
+
+                    if (options.reflect)
+                    {
+                        reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
+                        if (shaderRefl) shaderRefl->Release();
+                    }
                 }
             }
         }
