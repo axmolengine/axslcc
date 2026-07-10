@@ -31,6 +31,7 @@ struct Target
     int profile = 0;
     std::string spec;
     std::vector<std::string> defines;  // per-target builtin preprocessor defines
+    bool binary = false;               // true if --dxbc bytecode output
 };
 
 struct Options
@@ -43,8 +44,7 @@ struct Options
     bool sc = false;
     bool reflect = false;
     bool migrate = false;
-    bool dxil = false;      // Compile HLSL output to DXIL via DXC (Windows only)
-    bool dxcReflect = false; // Use DXC reflection for REFL (Windows only, validation)
+    bool dxbc = false;      // --dxbc: compile SPIRV-Cross HLSL output to D3D bytecode (DXBC/DXIL, Windows only)
 };
 
 struct CompileUnit

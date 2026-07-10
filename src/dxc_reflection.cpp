@@ -4,14 +4,10 @@
 #include "axslc-spec.h"
 #include "yasio/obstream.hpp"
 
-#include <combaseapi.h>
-#include <dxcapi.h>
 #include <d3d12shader.h>
-#include <atlbase.h>
 
-#include <cstdint>
+#include <cstdio>
 #include <cstring>
-#include <vector>
 #include <stdexcept>
 #include <algorithm>
 
@@ -65,68 +61,12 @@ uint16_t resolve_sc_type(D3D_REGISTER_COMPONENT_TYPE compType, BYTE mask)
     }
 }
 
-// Extract ID3D12ShaderReflection from a DXIL container blob
-HRESULT extractShaderReflection(const tlx::byte_buffer& dxil, CComPtr<ID3D12ShaderReflection>& outRefl)
-{
-    if (dxil.empty())
-        return E_FAIL;
-
-    CComPtr<IDxcLibrary> library;
-    HRESULT hr = DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library));
-    if (FAILED(hr) || !library)
-        return E_FAIL;
-
-    CComPtr<IDxcBlobEncoding> containerBlob;
-    hr = library->CreateBlobWithEncodingOnHeapCopy(
-        dxil.data(), static_cast<UINT32>(dxil.size()), CP_UTF8, &containerBlob);
-    if (FAILED(hr) || !containerBlob)
-        return E_FAIL;
-
-    CComPtr<IUnknown> containerRefl;
-    hr = DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&containerRefl));
-    if (FAILED(hr) || !containerRefl)
-        return E_FAIL;
-
-    void** vtable = *(void***)(IUnknown*)containerRefl.p;
-
-    // vtable[3] = Load(IUnknown*, IDxcBlob*) -> HRESULT
-    auto loadFn = (HRESULT(STDMETHODCALLTYPE*)(IUnknown*, IDxcBlob*))vtable[3];
-    hr = loadFn(containerRefl.p, containerBlob);
-    if (FAILED(hr))
-        return hr;
-
-    // vtable[4] = FindFirstPartKind(IUnknown*, UINT32, UINT32*) -> HRESULT
-    auto findFn = (HRESULT(STDMETHODCALLTYPE*)(IUnknown*, UINT32, UINT32*))vtable[4];
-    const UINT32 DXIL_FOURCC = 'D' | ('X' << 8) | ('I' << 16) | ('L' << 24);
-    UINT32 partIdx = 0;
-    hr = findFn(containerRefl.p, DXIL_FOURCC, &partIdx);
-    if (FAILED(hr))
-    {
-        // Try with reflection part kind 'RDAT'
-        const UINT32 RDAT_FOURCC = 'R' | ('D' << 8) | ('A' << 16) | ('T' << 24);
-        hr = findFn(containerRefl.p, RDAT_FOURCC, &partIdx);
-        if (FAILED(hr))
-        {
-            // Try 'STAT'
-            const UINT32 STAT_FOURCC = 'S' | ('T' << 8) | ('A' << 16) | ('T' << 24);
-            hr = findFn(containerRefl.p, STAT_FOURCC, &partIdx);
-        }
-    }
-    if (FAILED(hr))
-        return hr;
-
-    // vtable[5] = GetPartReflection(IUnknown*, UINT32, REFIID, void**) -> HRESULT
-    auto getPartReflFn = (HRESULT(STDMETHODCALLTYPE*)(IUnknown*, UINT32, REFIID, void**))vtable[5];
-    return getPartReflFn(containerRefl.p, partIdx, IID_ID3D12ShaderReflection, (void**)&outRefl);
-}
-
 } // namespace
 
-tlx::byte_buffer build_reflection(const DxcResult& result, ShaderStage stage,
+tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStage stage,
                                        const fs::path& input)
 {
-    CComPtr<ID3D12ShaderReflection> shaderRefl;
-    if (FAILED(extractShaderReflection(result.refl.empty() ? result.dxil : result.refl, shaderRefl)) || !shaderRefl)
+    if (!shaderRefl)
         throw std::runtime_error("Failed to extract shader reflection from DXIL");
 
     D3D12_SHADER_DESC shaderDesc{};

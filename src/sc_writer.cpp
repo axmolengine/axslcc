@@ -53,6 +53,8 @@ void write_sc(const Options& options, ShaderStage stage, const std::vector<Outpu
         ScTarget item;
         item.lang = sc_lang(outputs[i].target);
         item.profile = static_cast<uint32_t>(outputs[i].target.profile);
+        if (outputs[i].binary)
+            item.profile |= SC_PROFILE_BINARY;
         item.stage = sc_stage(stage);
         item.code = outputs[i].data;
         item.binary = outputs[i].binary;

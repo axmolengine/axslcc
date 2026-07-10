@@ -41,7 +41,7 @@ static int run_main(int argc, char** argv)
     }
     catch (std::exception& ex)
     {
-        std::cerr << "error: " << ex.what() << "\n\n";
+        std::cerr << ex.what() << "\n\n";
         axslcc::utils::print_help();
         return 1;
     }

@@ -120,10 +120,10 @@ void print_help()
     std::cerr
         << "axslcc - Axmol shader compiler\n\n"
         << "Usage:\n"
-        << "  axslcc --input <file> [--output <path>] --target=<lang-profile>[;<lang-profile>] [--sc] [--reflect]\n"
-        << "  axslcc --input <glsl> --output <path> --target=hlsl-51 --migrate\n\n"
+        << "  axslcc --input <file> [--output <path>] --target=<targets> [--sc] [--reflect]\n"
+        << "  axslcc --input <glsl> --output <path> --target=d3d12 --migrate\n\n"
         << "Targets:\n"
-        << "  hlsl-50, hlsl-51, essl-300, glsl-330, spirv-100, msl-20000, msl-30000\n\n"
+        << "  d3d11, d3d12, essl-300, glsl-330, spirv-100, msl-20000, msl-30000\n\n"
         << "Options:\n"
         << "  --input <file>      Input HLSL 5.1 or GLSL file\n"
         << "  --output <path>     Output file or basename. Defaults to input stem\n"
@@ -131,6 +131,7 @@ void print_help()
         << "  --sc                Write one Axmol .sc file containing all targets\n"
         << "  --reflect           Include reflection data in .sc output\n"
         << "  --migrate           GLSL to HLSL migration mode\n"
+        << "  --dxbc              Compile SPIRV-Cross HLSL output to D3D bytecode (DXBC/DXIL, Windows only)\n"
         << "  -DNAME[=VALUE]      Preprocessor define\n"
         << "  -I<dir>             Include directory\n"
         << "  --version           Print axslcc version and exit\n";
@@ -169,9 +170,26 @@ static void fill_builtin_target_defines(std::vector<Target>& targets)
 
 Target parse_target(std::string_view text)
 {
+    // New-style platform targets (no profile suffix)
+    if (text == "d3d11") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_HLSL;
+        target.profile = 50;
+        target.spec = "d3d11";
+        return target;
+    }
+    if (text == "d3d12") {
+        Target target;
+        target.lang = axslc::SHADER_LANG_HLSL;
+        target.profile = 51;
+        target.spec = "d3d12";
+        return target;
+    }
+
+    // Legacy format: lang-profile
     auto dash = text.find('-');
     if (dash == std::string_view::npos)
-        throw std::runtime_error("invalid target '" + std::string(text) + "'");
+        throw std::runtime_error("unsupported target '" + std::string(text) + "'");
 
     std::string lang = lower(std::string(text.substr(0, dash)));
     int profile = std::stoi(std::string(text.substr(dash + 1)));
@@ -240,10 +258,8 @@ Options parse_args(int argc, char** argv)
             options.reflect = true;
         } else if (arg == "--migrate") {
             options.migrate = true;
-        } else if (arg == "--dxil") {
-            options.dxil = true;
-        } else if (arg == "--dxc-reflect") {
-            options.dxcReflect = true;
+        } else if (arg == "--dxbc") {
+            options.dxbc = true;
         } else if (starts_with(arg, "-D")) {
             if (arg.size() == 2) {
                 require_value(argc, argv, i, "-D", value);
@@ -284,6 +300,15 @@ Options parse_args(int argc, char** argv)
                 throw std::runtime_error("--migrate only supports HLSL output targets");
         }
     }
+
+#ifdef _WIN32
+    if (options.dxbc) {
+        if (options.migrate)
+            throw std::runtime_error("--dxbc is not compatible with --migrate");
+        if (!utils::is_hlsl_source(options.input))
+            throw std::runtime_error("--dxbc requires HLSL input (.hlsl or .fx)");
+    }
+#endif
 
     fill_builtin_target_defines(options.targets);
 

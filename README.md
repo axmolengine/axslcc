@@ -33,3 +33,79 @@ Use repository tags or release archives to check out the exact legacy version yo
 - For issues specifically related to legacy builds, open issues in the legacy repository or consult its documentation.
 
 **Note:** This repository and its legacy artifacts are intended to help users who must maintain or rebuild older axmol targets. For new work, migrate to the rewritten axslcc (version **>= 3.99.0**) when it becomes available.
+
+## Shader Compilation Architecture
+
+### Pipeline
+
+axslcc compiles HLSL/GLSL shaders through a multi-stage pipeline:
+
+```
+HLSL/GLSL source
+       │
+       ▼
+  ┌─────────┐
+  │ glslang  │  ── preprocessor (resolves #include, #define)
+  └────┬────┘
+       │
+       ▼
+  ┌─────────┐
+  │  SPIR-V  │  ── intermediate binary IR
+  └────┬────┘
+       │
+       ▼
+  ┌──────────────┐
+  │  SPIRV-Cross  │  ── cross-compile to target language (HLSL/GLSL/MSL/ESSL)
+  └────┬─────────┘
+       │
+       ├── (source output) → .sc container with text source
+       │
+       └── (--dxbc path, Windows only)
+              │
+              ├── profile ≤ 51  →  FXC (D3DCompile) → DXBC bytecode (SM 5.0 / 5.1)
+              │
+              └── profile ≥ 60  →  DXC (dxcompiler) → DXIL bytecode (SM 6.0)
+```
+
+### Target Types
+
+| Target    | Source Output (no `--dxbc`) | Bytecode Output (`--dxbc`) |
+|-----------|----------------------------|---------------------------|
+| `d3d11`   | HLSL text (SM 5.0)         | DXBC via FXC (SM 5.0)     |
+| `d3d12`   | HLSL text (SM 5.1)         | DXBC SM 5.1 (FXC) + DXIL SM 6.0 (DXC) |
+| `essl-300`| GLSL ES text               | —                          |
+| `glsl-330`| GLSL text                  | —                          |
+| `spirv-100`| SPIR-V binary              | —                          |
+| `msl-*`   | Metal Shading Language      | —                          |
+
+### d3d12 Bytecode Expansion
+
+When `--dxbc` is specified with `--target=d3d12`, axslcc produces **two** entries in the .sc container:
+
+1. **SM 5.1 (FXC)**: `profile_ver = 51 | SC_PROFILE_BINARY` — DXBC for backward compatibility with older D3D12 drivers
+2. **SM 6.0 (DXC)**: `profile_ver = 60 | SC_PROFILE_BINARY` — DXIL for modern D3D12 drivers
+
+### .sc Container Binary Flag
+
+The `.sc` container stores a per-target `profile_ver` field. Bit 31 (`SC_PROFILE_BINARY = 0x80000000`) indicates whether the code chunk contains bytecode:
+
+| `profile_ver` | Content |
+|---------------|---------|
+| `51` | HLSL source text (SM 5.1) |
+| `51 \| SC_PROFILE_BINARY` | DXBC bytecode (SM 5.1) |
+| `60 \| SC_PROFILE_BINARY` | DXIL bytecode (SM 6.0) |
+
+The RHI runtime reads this flag to determine if the data should be passed to `CreateVertexShader`/`CreatePixelShader` (bytecode) or compiled at runtime (source).
+
+### Reflection
+
+Reflection data (vertex inputs, constant buffers, textures) is generated via SPIRV-Cross and embedded in the `REFL` chunk of the .sc container when `--reflect` is specified. Reflection always uses the SPIRV-Cross path regardless of source/bytecode output mode.
+
+### Compiler Backends
+
+| Backend | File | Purpose |
+|---------|------|---------|
+| glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) |
+| SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) |
+| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1, Windows only) |
+| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0, Windows only) |

@@ -123,14 +123,17 @@ set(axslcc_SOURCES
     src/compiler.h
     src/compiler.cpp
     src/main.cpp
+    3rdparty/yasio/yasio/yasio.natvis
 )
 
 if(WIN32)
-    # DXC direct compilation path (Windows only, avoids SPIR-V roundtrip for D3D12)
+    # DXC/FXC bytecode compilation backends (Windows only)
     list(APPEND axslcc_SOURCES
         src/dxc_compiler.h
         src/dxc_compiler.cpp
         src/dxc_reflection.cpp
+        src/fxc_compiler.h
+        src/fxc_compiler.cpp
     )
 endif()
 
@@ -147,7 +150,7 @@ target_link_libraries(axslcc PRIVATE
 target_include_directories(axslcc PRIVATE 3rdparty/yasio)
 
 if(WIN32)
-    target_link_libraries(axslcc PRIVATE dxcompiler dxguid)
+    target_link_libraries(axslcc PRIVATE dxcompiler dxguid d3dcompiler)
 endif()
 
 # ------------------------------------------------------------------------------

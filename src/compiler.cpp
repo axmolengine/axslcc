@@ -7,6 +7,7 @@
 
 #ifdef _WIN32
 #include "dxc_compiler.h"
+#include "fxc_compiler.h"
 #endif
 
 #include "glslang/Public/ShaderLang.h"
@@ -36,7 +37,41 @@ void Compiler::compile(const Options& options)
     std::vector<OutputBlob> outputs;
     std::vector<tlx::byte_buffer> reflections;
 
-    for (const auto& target : options.targets) {
+    auto targets = options.targets;
+
+#ifdef _WIN32
+    if (options.dxbc)
+    {
+        // Mark HLSL targets as binary bytecode
+        for (auto& t : targets)
+        {
+            if (t.lang == axslc::SHADER_LANG_HLSL)
+                t.binary = true;
+        }
+
+        // Expand d3d12 into SM5.1 (FXC/DXBC) + SM6.0 (DXC/DXIL)
+        for (size_t i = 0; i < targets.size(); ++i)
+        {
+            if (targets[i].spec == "d3d12")
+            {
+                Target sm51 = targets[i];
+                sm51.profile = 51;
+                sm51.spec = "d3d12-sm51";
+
+                Target sm60 = targets[i];
+                sm60.profile = 60;
+                sm60.spec = "d3d12-sm60";
+
+                targets[i] = sm51;
+                targets.insert(targets.begin() + static_cast<ptrdiff_t>(i) + 1, std::move(sm60));
+                ++i;
+            }
+        }
+    }
+#endif
+
+    for (const auto& target : targets)
+    {
         CompileUnit unit;
         try {
             unit = spirv::compile_input(options, target);
@@ -49,21 +84,37 @@ void Compiler::compile(const Options& options)
         auto blob = cross::cross_compile(target, unit.spirv, options.input);
 
 #ifdef _WIN32
-        // Optional: compile SPIRV-Cross HLSL output to DXIL bytecode
-        if (options.dxil && target.lang == axslc::SHADER_LANG_HLSL && !blob.binary)
+        if (target.binary)
         {
+            std::string hlslSource(reinterpret_cast<const char*>(blob.data.data()), blob.data.size());
+
             try
             {
-                std::string hlslSource(reinterpret_cast<const char*>(blob.data.data()), blob.data.size() - 1);
-                auto dxcResult = dxc::compile_source(hlslSource, unit.stage,
-                                                      options.include_dirs, options.defines);
-                blob.data = std::move(dxcResult.dxil);
-                blob.binary = true;
+                auto all_defines = options.defines;
+                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+                if (target.profile <= 51) // SM5.0/SM5.1 via FXC → DXBC
+                {
+                    auto fxcResult = fxc::compile_hlsl(hlslSource, unit.stage,
+                                                        options.include_dirs, all_defines,
+                                                        target.profile, options.input);
+                    blob.data = std::move(fxcResult.dxbc);
+                    blob.binary = true;
+                }
+                else // SM6.0 via DXC → DXIL
+                {
+                    auto dxcResult = dxc::compile_source(hlslSource, unit.stage,
+                                                          options.include_dirs, all_defines,
+                                                          target.profile, nullptr, options.input);
+                    blob.data = std::move(dxcResult.dxil);
+                    blob.binary = true;
+                }
             }
             catch (const std::exception& e)
             {
-                std::cerr << "[dxc] --dxil failed for " << options.input.filename().string()
-                          << ": " << e.what() << std::endl;
+                std::cerr << "[dxbc] bytecode compile failed for " << options.input.filename().string()
+                          << " (" << target.spec << "): " << e.what() << std::endl;
+                throw;
             }
         }
 #endif
