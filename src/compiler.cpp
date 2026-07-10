@@ -8,7 +8,6 @@
 #ifdef _WIN32
 #include "dxc_compiler.h"
 #include "fxc_compiler.h"
-#include <d3d12shader.h>
 #endif
 
 #include "glslang/Public/ShaderLang.h"
@@ -114,33 +113,20 @@ void Compiler::compile(const Options& options)
                                                          target.profile, options.input);
                     blob.data = std::move(fxcResult.dxbc);
                     blob.binary = true;
-
-                    if (options.reflect)
-                    {
-                        ID3D12ShaderReflection* shaderRefl = nullptr;
-                        dxc::compile_source(source, stage,
-                                             options.include_dirs, all_defines,
-                                             60, &shaderRefl, options.input);
-                        reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
-                        if (shaderRefl) shaderRefl->Release();
-                    }
                 }
                 else
                 {
-                    ID3D12ShaderReflection* shaderRefl = nullptr;
                     auto dxcResult = dxc::compile_source(source, stage,
                                                           options.include_dirs, all_defines,
-                                                          target.profile,
-                                                          options.reflect ? &shaderRefl : nullptr,
-                                                          options.input);
+                                                          target.profile, options.input);
                     blob.data = std::move(dxcResult.dxil);
                     blob.binary = true;
+                }
 
-                    if (options.reflect)
-                    {
-                        reflections.push_back(dxc::build_reflection(shaderRefl, stage, options.input));
-                        if (shaderRefl) shaderRefl->Release();
-                    }
+                if (options.reflect)
+                {
+                    auto reflUnit = spirv::compile_input(options, target);
+                    reflections.push_back(reflection::build_reflection(target, reflUnit.spirv, reflUnit.stage, options.input));
                 }
             }
         }

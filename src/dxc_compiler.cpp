@@ -4,7 +4,6 @@
 
 #include <windows.h>
 #include <dxcapi.h>
-#include <d3d12shader.h>
 
 #include <atlbase.h>
 #include <stdexcept>
@@ -42,7 +41,6 @@ DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
                           const std::vector<fs::path>& includeDirs,
                           const std::vector<std::string>& defines,
                           int profile,
-                          ID3D12ShaderReflection** outReflection,
                           const fs::path& sourceName)
 {
     CComPtr<IDxcLibrary> library;
@@ -107,23 +105,6 @@ DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
     DxcResult out;
     out.dxil.assign((uint8_t*)dxilBlob->GetBufferPointer(),
                      (uint8_t*)dxilBlob->GetBufferPointer() + dxilBlob->GetBufferSize());
-
-    CComPtr<IDxcBlob> reflBlob;
-    CComQIPtr<IDxcResult> dxcResult(opResult);
-    if (dxcResult)
-        dxcResult->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&reflBlob), nullptr);
-    if (reflBlob)
-        out.refl.assign((uint8_t*)reflBlob->GetBufferPointer(),
-                         (uint8_t*)reflBlob->GetBufferPointer() + reflBlob->GetBufferSize());
-
-    if (outReflection && reflBlob)
-    {
-        CComPtr<IDxcUtils> utils;
-        DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
-
-        DxcBuffer buf{ reflBlob->GetBufferPointer(), reflBlob->GetBufferSize(), 0 };
-        utils->CreateReflection(&buf, IID_ID3D12ShaderReflection, (void**)outReflection);
-    }
 
     return out;
 }

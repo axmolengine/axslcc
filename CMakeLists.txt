@@ -131,7 +131,6 @@ if(WIN32)
     list(APPEND axslcc_SOURCES
         src/dxc_compiler.h
         src/dxc_compiler.cpp
-        src/dxc_reflection.cpp
         src/fxc_compiler.h
         src/fxc_compiler.cpp
     )
