@@ -73,14 +73,7 @@ HLSL/GLSL source
 
 ### Reflection
 
-Reflection data (vertex inputs, constant buffers, textures) uses different paths:
-
-| Mode | Reflection Source |
-|------|------------------|
-| Source output | SPIRV-Cross reflection (from SPIR-V) |
-| `--dxbc` bytecode | DXC reflection at SM6.0 (for all profiles) |
-
-For `--dxbc`, DXC is invoked at SM6.0 just for reflection extraction, even when the actual bytecode comes from FXC at SM5.x. The reflection data is embedded in the `REFL` chunk.
+Reflection data (vertex inputs, constant buffers, textures) is generated via SPIRV-Cross from the glslang-produced SPIR-V intermediate, ensuring consistent results across all output modes (source text and bytecode).
 
 ### Target Types
 
@@ -120,7 +113,8 @@ Reflection data (vertex inputs, constant buffers, textures) is generated via SPI
 
 | Backend | File | Purpose |
 |---------|------|---------|
-| glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) — source output path |
-| SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) — source output path |
-| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1) — `--dxbc` bytecode path |
-| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0) — `--dxbc` bytecode path; also used for DXC reflection on all profiles |
+| glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) |
+| SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) |
+| SPIRV-Cross | `reflection.cpp` | SPIR-V → .sc reflection data (UBO/texture/input bindings) |
+| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1) — `--dxbc` d3d11/d3d12 bytecode |
+| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0) — `--dxbc` d3d12 bytecode |
