@@ -23,13 +23,14 @@ void copy_name(char* dst, size_t size, const std::string& name)
     std::strncpy(dst, name.c_str(), size - 1);
 }
 
-uint16_t resolve_sc_type(D3D_REGISTER_COMPONENT_TYPE compType, BYTE mask)
+// Map D3D12 input signature component type + mask to SC_TYPE_*
+uint16_t resolve_input_sc_type(D3D_REGISTER_COMPONENT_TYPE compType, BYTE mask)
 {
     int count = 0;
-    if (mask & 1) ++count;
-    if (mask & 2) ++count;
-    if (mask & 4) ++count;
-    if (mask & 8) ++count;
+    if (mask & D3D_COMPONENT_MASK_X) ++count;
+    if (mask & D3D_COMPONENT_MASK_Y) ++count;
+    if (mask & D3D_COMPONENT_MASK_Z) ++count;
+    if (mask & D3D_COMPONENT_MASK_W) ++count;
 
     switch (compType)
     {
@@ -59,6 +60,70 @@ uint16_t resolve_sc_type(D3D_REGISTER_COMPONENT_TYPE compType, BYTE mask)
     default:
         return axslc::SC_TYPE_FLOAT4;
     }
+}
+
+// Map D3D12_SHADER_TYPE_DESC (UBO member) to SC_TYPE_*
+uint16_t resolve_ubo_sc_type(const D3D12_SHADER_TYPE_DESC& td)
+{
+    auto elems = static_cast<uint16_t>(td.Columns);
+    auto rows  = static_cast<uint16_t>(td.Rows);
+
+    if (td.Class == D3D_SVC_MATRIX_COLUMNS || td.Class == D3D_SVC_MATRIX_ROWS)
+    {
+        if (td.Type == D3D_SVT_FLOAT)
+        {
+            if (elems == 4 && rows == 4) return axslc::SC_TYPE_MAT4;
+            if (elems == 3 && rows == 3) return axslc::SC_TYPE_MAT3;
+        }
+        return axslc::SC_TYPE_FLOAT4;
+    }
+
+    // VECTOR or SCALAR
+    int count = (td.Class == D3D_SVC_SCALAR) ? 1 : std::max<int>(elems, 1);
+
+    switch (td.Type)
+    {
+    case D3D_SVT_FLOAT:
+    case D3D_SVT_FLOAT16:
+        switch (count) {
+        case 1: return axslc::SC_TYPE_FLOAT;
+        case 2: return axslc::SC_TYPE_FLOAT2;
+        case 3: return axslc::SC_TYPE_FLOAT3;
+        case 4: return axslc::SC_TYPE_FLOAT4;
+        default: return axslc::SC_TYPE_FLOAT4;
+        }
+    case D3D_SVT_INT:
+        switch (count) {
+        case 1: return axslc::SC_TYPE_INT;
+        case 2: return axslc::SC_TYPE_INT2;
+        case 3: return axslc::SC_TYPE_INT3;
+        case 4: return axslc::SC_TYPE_INT4;
+        default: return axslc::SC_TYPE_INT4;
+        }
+    case D3D_SVT_UINT:
+        switch (count) {
+        case 1: return axslc::SC_TYPE_INT;
+        case 2: return axslc::SC_TYPE_INT2;
+        case 4: return axslc::SC_TYPE_INT4;
+        default: return axslc::SC_TYPE_INT4;
+        }
+    default:
+        return axslc::SC_TYPE_FLOAT4;
+    }
+}
+
+bool is_multisample(D3D_SRV_DIMENSION dim)
+{
+    return dim == D3D_SRV_DIMENSION_TEXTURE2DMS ||
+           dim == D3D_SRV_DIMENSION_TEXTURE2DMSARRAY;
+}
+
+bool is_arrayed(D3D_SRV_DIMENSION dim)
+{
+    return dim == D3D_SRV_DIMENSION_TEXTURE1DARRAY ||
+           dim == D3D_SRV_DIMENSION_TEXTURE2DARRAY ||
+           dim == D3D_SRV_DIMENSION_TEXTURE2DMSARRAY ||
+           dim == D3D_SRV_DIMENSION_TEXTURECUBEARRAY;
 }
 
 } // namespace
@@ -96,7 +161,7 @@ tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStag
 
             inputEntry.location = static_cast<int32_t>(sigDesc.Register);
             inputEntry.semantic_index = sigDesc.SemanticIndex;
-            inputEntry.var_type = resolve_sc_type(sigDesc.ComponentType, sigDesc.Mask);
+            inputEntry.var_type = resolve_input_sc_type(sigDesc.ComponentType, sigDesc.Mask);
 
             out.write_bytes(&inputEntry, sizeof(inputEntry));
             ++header.num_inputs;
@@ -121,7 +186,7 @@ tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStag
         ubo.binding = static_cast<int32_t>(bindDesc.BindPoint);
         ubo.size_bytes = cbDesc.Size;
         ubo.num_members = static_cast<uint16_t>(std::min<UINT>(cbDesc.Variables, 0xffff));
-        ubo.array_size = 0;
+        ubo.array_size = static_cast<uint16_t>(std::max<UINT>(bindDesc.BindCount, 1u));
         out.write_bytes(&ubo, sizeof(ubo));
         ++header.num_uniform_buffers;
 
@@ -140,7 +205,7 @@ tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStag
             member.offset = static_cast<int32_t>(varDesc.StartOffset);
             member.size_bytes = varDesc.Size;
             member.array_size = static_cast<uint16_t>(std::max<UINT>(varTypeDesc.Elements, 1u));
-            member.var_type = axslc::SC_TYPE_FLOAT4;
+            member.var_type = resolve_ubo_sc_type(varTypeDesc);
             out.write_bytes(&member, sizeof(member));
         }
     }
@@ -159,9 +224,9 @@ tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStag
         texture.binding = static_cast<int32_t>(bindDesc.BindPoint);
         texture.image_dim = static_cast<uint8_t>(bindDesc.Dimension);
         texture.count = static_cast<uint8_t>((std::max)(bindDesc.BindCount, 1u));
+        texture.multisample = is_multisample(bindDesc.Dimension) ? 1 : 0;
+        texture.arrayed = is_arrayed(bindDesc.Dimension) ? 1 : 0;
         texture.sampler_slot = 0;
-        texture.multisample = 0;
-        texture.arrayed = 0;
 
         out.write_bytes(&texture, sizeof(texture));
         ++header.num_textures;
