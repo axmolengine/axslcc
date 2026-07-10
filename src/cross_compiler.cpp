@@ -7,7 +7,6 @@
 #include "spirv_hlsl.hpp"
 #include "spirv_msl.hpp"
 
-#include <algorithm>
 #include <memory>
 #include <unordered_map>
 
@@ -33,23 +32,6 @@ std::string make_semantic_string(const std::string& name, uint16_t index)
     return name;
 }
 
-// Inject BuiltIn PointSize decoration on a SPIRV-Cross compiler
-// if a vertex shader output variable named "pointSize" is found.
-static void inject_pointsize(spirv_cross::CompilerGLSL* compiler)
-{
-    auto resources = compiler->get_shader_resources();
-    auto it = std::find_if(resources.stage_outputs.begin(), resources.stage_outputs.end(),
-        [&](const spirv_cross::Resource& res) {
-            auto name = compiler->get_name(res.id);
-            return name.find("pointSize") != std::string::npos ||
-                   name.find("PointSize") != std::string::npos;
-        });
-    if (it != resources.stage_outputs.end())
-    {
-        compiler->set_decoration(it->id, spv::DecorationBuiltIn, spv::BuiltInPointSize);
-    }
-}
-
 } // namespace
 
 OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spirv,
@@ -59,7 +41,6 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         return OutputBlob{target, spirv::spirv_to_bytes(spirv), true};
 
     auto compiler = make_cross_compiler(target, spirv);
-    inject_pointsize(compiler.get());
     auto options = compiler->get_common_options();
     options.flatten_multidimensional_arrays = true;
 

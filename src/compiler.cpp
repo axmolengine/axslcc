@@ -78,7 +78,7 @@ void Compiler::compile(const Options& options)
         {
             if (target.spec == "d3d11")
             {
-                // d3d11: SPIRV-Cross converts SM5.1→SM5.0 compatible HLSL, then FXC compiles to DXBC
+                // d3d11: SPIRV-Cross converts SM5.1->SM5.0 compatible HLSL, then FXC compiles to DXBC
                 CompileUnit unit;
                 unit = spirv::compile_input(options, target);
 
