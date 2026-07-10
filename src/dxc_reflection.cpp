@@ -115,7 +115,10 @@ tlx::byte_buffer build_reflection(ID3D12ShaderReflection* shaderRefl, ShaderStag
 
         axslc::sc_refl_uniformbuffer ubo{};
         copy_name(ubo.name, sizeof(ubo.name), cbDesc.Name);
-        ubo.binding = 0;
+
+        D3D12_SHADER_INPUT_BIND_DESC bindDesc{};
+        shaderRefl->GetResourceBindingDescByName(cbDesc.Name, &bindDesc);
+        ubo.binding = static_cast<int32_t>(bindDesc.BindPoint);
         ubo.size_bytes = cbDesc.Size;
         ubo.num_members = static_cast<uint16_t>(std::min<UINT>(cbDesc.Variables, 0xffff));
         ubo.array_size = 0;
