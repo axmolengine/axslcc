@@ -110,8 +110,8 @@ set(DXC_RUNTIME_DXIL "${DXC_RUNTIME_DXIL}" PARENT_SCOPE)
 # ---------------------------------------------------------------
 if(WIN32)
     set(DXC_FXC_VERSION 28000.1839)
-    set(DXC_FXC_URL "https://github.com/simdsoft/1kiss/releases/download/devtools/fxc-${DXC_FXC_VERSION}.7z")
-    set(DXC_FXC_ARCHIVE "${DXC_CACHE_DIR}/fxc-${DXC_FXC_VERSION}.7z")
+    set(DXC_FXC_URL "https://github.com/simdsoft/1kiss/releases/download/devtools/fxc-${DXC_FXC_VERSION}.zip")
+    set(DXC_FXC_ARCHIVE "${DXC_CACHE_DIR}/fxc-${DXC_FXC_VERSION}.zip")
     set(DXC_FXC_EXTRACT_DIR "${DXC_CACHE_DIR}/fxc-${DXC_FXC_VERSION}")
 
     if(NOT EXISTS "${DXC_FXC_ARCHIVE}")
