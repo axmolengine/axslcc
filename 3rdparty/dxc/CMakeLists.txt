@@ -23,24 +23,41 @@ if(NOT EXISTS "${DXC_EXTRACT_DIR}/include")
 endif()
 
 # ---------------------------------------------------------------
-# 3. Copy headers to _x/include/dxc/ (package has flat *.h,
-#    but axslcc expects #include <dxc/dxcapi.h>)
+# 3. Copy headers to _x/include/
+#    Two possible layouts from 1kiss:
+#      - Flat (Windows prebuilt): include/*.h
+#      - Subdirectory (Linux/macOS source build): include/dxc/*.h
+#    axslcc expects #include <dxc/dxcapi.h>, so we need
+#    _x/include/dxc/dxcapi.h in both cases.
 # ---------------------------------------------------------------
 set(DXC_INCLUDE_DIR "${DXC_X_DIR}/include")
 if(NOT EXISTS "${DXC_INCLUDE_DIR}/dxc")
-    file(MAKE_DIRECTORY "${DXC_INCLUDE_DIR}/dxc")
-    file(GLOB DXC_TOP_HDRS "${DXC_EXTRACT_DIR}/include/*.h")
-    foreach(hdr ${DXC_TOP_HDRS})
-        get_filename_component(name "${hdr}" NAME)
-        file(COPY "${hdr}" DESTINATION "${DXC_INCLUDE_DIR}/dxc/")
-    endforeach()
-    # also copy subdirectories (hlsl/, Support/)
-    file(COPY "${DXC_EXTRACT_DIR}/include/hlsl" DESTINATION "${DXC_INCLUDE_DIR}/")
-    file(COPY "${DXC_EXTRACT_DIR}/include/Support" DESTINATION "${DXC_INCLUDE_DIR}/")
+    if(EXISTS "${DXC_EXTRACT_DIR}/include/dxc")
+        # Subdirectory layout: copy entire include/ tree as-is
+        file(COPY "${DXC_EXTRACT_DIR}/include/" DESTINATION "${DXC_INCLUDE_DIR}")
+    else()
+        # Flat layout: restructure into dxc/ subdirectory
+        file(MAKE_DIRECTORY "${DXC_INCLUDE_DIR}/dxc")
+        file(GLOB _flat_hdrs "${DXC_EXTRACT_DIR}/include/*.h")
+        foreach(hdr ${_flat_hdrs})
+            file(COPY "${hdr}" DESTINATION "${DXC_INCLUDE_DIR}/dxc/")
+        endforeach()
+        file(COPY "${DXC_EXTRACT_DIR}/include/hlsl" DESTINATION "${DXC_INCLUDE_DIR}/")
+        file(COPY "${DXC_EXTRACT_DIR}/include/Support" DESTINATION "${DXC_INCLUDE_DIR}/")
+    endif()
 endif()
 
 # ---------------------------------------------------------------
-# 3b. Copy DXC license to _x/
+# 3b. Ensure WinAdapter.h exists (missing in 1kiss packages,
+#      but required by dxcapi.h on non-Windows)
+# ---------------------------------------------------------------
+if(NOT EXISTS "${DXC_INCLUDE_DIR}/dxc/WinAdapter.h")
+    set(_wa_url "https://raw.githubusercontent.com/microsoft/DirectXShaderCompiler/v${DXC_VERSION}/include/dxc/WinAdapter.h")
+    file(DOWNLOAD "${_wa_url}" "${DXC_INCLUDE_DIR}/dxc/WinAdapter.h" SHOW_PROGRESS)
+endif()
+
+# ---------------------------------------------------------------
+# 3c. Copy DXC license to _x/
 # ---------------------------------------------------------------
 if(NOT EXISTS "${DXC_X_DIR}/LICENSE-dxc.txt")
     file(COPY "${DXC_EXTRACT_DIR}/include/hlsl/LICENSE.txt"
