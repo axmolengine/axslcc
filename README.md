@@ -41,6 +41,20 @@ Use repository tags or release archives to check out the exact legacy version yo
 axslcc compiles HLSL/GLSL shaders through a multi-stage pipeline:
 
 ```
+
+### HLSL frontend and Vulkan samplers
+
+DXC is the default HLSL frontend on Windows, Linux, and macOS. It is used through the DXC library API and must be provided as a pinned distribution at build time (`AXSLCC_DXC_ROOT`), in `3rdparty/dxc`, or by `VULKAN_SDK`. Release packages must ship the matching `dxcompiler` runtime next to `axslcc`.
+
+Use `--hlsl-frontend dxc|glslang` to select the temporary migration frontend; the default is `dxc`. There is no implicit fallback when DXC is unavailable.
+
+Vulkan defaults to separate sampled-image and sampler descriptors:
+
+```bash
+axslcc --vulkan-samplers separate -t vk shader_ps.hlsl
+```
+
+DXC shifts sampler bindings into a separate Vulkan binding range and removes unused `base.hlsli` presets. `--vulkan-samplers combined` retains the compatibility round-trip for texture-owned sampler pipelines. GLSL/ESSL targets continue to generate combined sampler uniforms.
 HLSL/GLSL source
        │
        ├── (--dxbc path, Windows only, HLSL input)

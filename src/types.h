@@ -29,6 +29,18 @@ enum class InputLang
     GLSL
 };
 
+enum class HlslFrontend
+{
+    DXC,
+    Glslang
+};
+
+enum class VulkanSamplerMode
+{
+    Separate,
+    Combined
+};
+
 // ============= Structs =============
 
 struct ShaderInfo
@@ -57,6 +69,8 @@ struct Options
     bool keep_source = false;          // -S   keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)
     int opt_level = 0;                 // -O0 (debug) through -O3
     InputLang input_lang = InputLang::HLSL; // -x
+    HlslFrontend hlsl_frontend = HlslFrontend::DXC; // --hlsl-frontend
+    VulkanSamplerMode vulkan_sampler_mode = VulkanSamplerMode::Separate; // --vulkan-samplers
     bool xlang = false;                 // true if -x was explicitly specified
     ShaderStage stage = ShaderStage::Vertex;  // detected from filename
     std::string cvar;                  // --cvar

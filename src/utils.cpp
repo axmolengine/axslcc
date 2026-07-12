@@ -128,6 +128,10 @@ void print_help()
         << "  -t <target>        Output target (repeatable)\n"
         << "  -a                 Write Axmol .sc archive with reflection data\n"
         << "  -x <lang>          Input language: hlsl, glsl (default: hlsl)\n"
+        << "  --hlsl-frontend <dxc|glslang>\n"
+        << "                     HLSL frontend (default: dxc)\n"
+        << "  --vulkan-samplers <separate|combined>\n"
+        << "                     Vulkan descriptor model (default: separate)\n"
         << "  -S                 Keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)\n"
         << "  -O<level>          Optimization level: 0 (debug, default), 1 (favor size), 2 (favor speed), 3 (aggressive)\n"
         << "  -I <dir>           Include directory (repeatable)\n"
@@ -277,6 +281,24 @@ Options parse_args(int argc, char** argv)
             options.xlang = true;
         } else if (arg == "-S") {
             options.keep_source = true;
+        } else if (arg == "--vulkan-samplers") {
+            require_value(argc, argv, i, "--vulkan-samplers", value);
+            auto mode = lower(value);
+            if (mode == "separate")
+                options.vulkan_sampler_mode = VulkanSamplerMode::Separate;
+            else if (mode == "combined")
+                options.vulkan_sampler_mode = VulkanSamplerMode::Combined;
+            else
+                throw std::runtime_error("unknown Vulkan sampler mode '" + value + "' (expected separate or combined)");
+        } else if (arg == "--hlsl-frontend") {
+            require_value(argc, argv, i, "--hlsl-frontend", value);
+            auto frontend = lower(value);
+            if (frontend == "dxc")
+                options.hlsl_frontend = HlslFrontend::DXC;
+            else if (frontend == "glslang")
+                options.hlsl_frontend = HlslFrontend::Glslang;
+            else
+                throw std::runtime_error("unknown HLSL frontend '" + value + "' (expected dxc or glslang)");
         } else if (arg == "-O0") {
             options.opt_level = 0;
         } else if (arg == "-O1") {

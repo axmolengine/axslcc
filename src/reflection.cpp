@@ -29,6 +29,23 @@ constexpr uint16_t kSemanticIndices[] = {
     0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 0, 0, 0, 0,
 };
 
+constexpr std::string_view kPresetSamplers[] = {
+    "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
+    "PointClamp", "PointWrap", "PointMirror", "PointBorder",
+    "LinearMipClamp", "LinearMipWrap", "LinearMipMirror", "LinearMipBorder",
+    "AnisoClamp", "AnisoWrap", "AnisoMirror", "AnisoBorder",
+    "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
+    "LinearNoMipClamp", "PointNoMipClamp",
+};
+
+int16_t preset_sampler_index(std::string_view name)
+{
+    for (size_t i = 0; i < std::size(kPresetSamplers); ++i)
+        if (name == kPresetSamplers[i])
+            return static_cast<int16_t>(i);
+    return -1;
+}
+
 constexpr VariableTypeMap kVariableTypeMap[] = {
     {spirv_cross::SPIRType::Float, 4, 1, axslc::SC_TYPE_FLOAT4},
     {spirv_cross::SPIRType::Float, 3, 1, axslc::SC_TYPE_FLOAT3},
@@ -239,11 +256,15 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         axslc::sc_refl_texture texture{};
         copy_name(texture.name, sizeof(texture.name), resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name);
         texture.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        texture.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
         texture.image_dim = static_cast<uint8_t>(type.image.dim);
         texture.multisample = type.image.ms ? 1 : 0;
         texture.arrayed = type.image.arrayed ? 1 : 0;
-        texture.count = static_cast<uint8_t>(std::min<uint16_t>(array_size(type), 255));
-        texture.sampler_slot = 0;
+        texture.count = array_size(type);
+        texture.sampler_source = resources.separate_images.empty()
+            ? axslc::SC_SAMPLER_SOURCE_TEXTURE_OWNED
+            : axslc::SC_SAMPLER_SOURCE_SHADER_PRESET;
         write_struct(out, texture);
         if (storage)
             ++header.num_storage_images;
@@ -256,6 +277,40 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
 
     for (const auto& resource : resources.separate_images)
         write_texture(resource, false);
+
+    for (const auto& resource : resources.separate_samplers) {
+        auto& type = compiler->get_type(resource.type_id);
+        axslc::sc_refl_sampler sampler{};
+        const auto name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
+        copy_name(sampler.name, sizeof(sampler.name), name);
+        sampler.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        sampler.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
+        sampler.count = array_size(type);
+        sampler.preset_index = preset_sampler_index(name);
+        sampler.comparison = type.basetype == spirv_cross::SPIRType::Sampler && type.image.depth ? 1 : 0;
+        write_struct(out, sampler);
+        ++header.num_samplers;
+    }
+
+    if (!resources.separate_images.empty() && !resources.separate_samplers.empty()) {
+        compiler->build_combined_image_samplers();
+        for (const auto& combined : compiler->get_combined_image_samplers()) {
+            axslc::sc_refl_sampling_pair pair{};
+            pair.texture_binding = static_cast<int32_t>(compiler->get_decoration(combined.image_id, spv::DecorationBinding));
+            pair.sampler_binding = static_cast<int32_t>(compiler->get_decoration(combined.sampler_id, spv::DecorationBinding));
+            pair.texture_set = static_cast<uint16_t>(compiler->has_decoration(combined.image_id, spv::DecorationDescriptorSet)
+                ? compiler->get_decoration(combined.image_id, spv::DecorationDescriptorSet) : 0);
+            pair.sampler_set = static_cast<uint16_t>(compiler->has_decoration(combined.sampler_id, spv::DecorationDescriptorSet)
+                ? compiler->get_decoration(combined.sampler_id, spv::DecorationDescriptorSet) : 0);
+            pair.preset_index = preset_sampler_index(compiler->get_name(combined.sampler_id));
+            pair.sampler_source = pair.preset_index >= 0
+                ? axslc::SC_SAMPLER_SOURCE_SHADER_PRESET
+                : axslc::SC_SAMPLER_SOURCE_CUSTOM;
+            write_struct(out, pair);
+            ++header.num_sampling_pairs;
+        }
+    }
 
     if (stage == ShaderStage::Compute) {
         for (const auto& resource : resources.storage_images)

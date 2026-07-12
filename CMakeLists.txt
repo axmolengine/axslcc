@@ -32,6 +32,7 @@ option(ENABLE_OPT "Enables spirv-opt capability if present" ON)
 set(ENABLE_PCH OFF CACHE BOOL "Disable third-party precompiled headers for simpler embedded builds" FORCE)
 
 option(USE_CCACHE "Use ccache" OFF)
+set(AXSLCC_DXC_ROOT "" CACHE PATH "DXC distribution root (contains include/dxc and lib/bin)")
 if (WIN32)
     option(ENABLE_D3D11_COMPILER "Use Direct3D11 compiler (d3dcompiler.lib + d3dcompiler_47.dll)" ON)
 endif()
@@ -66,6 +67,9 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
 if (MSVC)
+  remove_definitions(-D_MBCS)
+  add_definitions(-DUNICODE -D_UNICODE)
+
 	remove_compile_options(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}" "/GR")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} /wd4530")
 	
@@ -104,6 +108,7 @@ if (NOT (IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang"))
     # execute_process(COMMAND ${GIT_COMMAND} -C "${GLSLANG_SOURCE_DIR}" apply --verbose --ignore-whitespace "${GLSLANG_PATCH_FILE}")
 endif()
 
+add_subdirectory(3rdparty/dxc)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/spirv-cross)
 
@@ -122,15 +127,15 @@ set(axslcc_SOURCES
     src/sc_writer.cpp
     src/compiler.h
     src/compiler.cpp
+    src/dxc_compiler.h
+    src/dxc_compiler.cpp
     src/main.cpp
     3rdparty/yasio/yasio/yasio.natvis
 )
 
 if(WIN32)
-    # DXC/FXC bytecode compilation backends (Windows only)
+    # FXC bytecode compilation backend (Windows only)
     list(APPEND axslcc_SOURCES
-        src/dxc_compiler.h
-        src/dxc_compiler.cpp
         src/fxc_compiler.h
         src/fxc_compiler.cpp
     )
@@ -141,6 +146,7 @@ target_link_libraries(axslcc PRIVATE
     glslang::glslang
     glslang::SPIRV
     glslang::glslang-default-resource-limits
+    SPIRV-Tools-opt
     spirv-cross-glsl
     spirv-cross-hlsl
     spirv-cross-msl
@@ -148,8 +154,30 @@ target_link_libraries(axslcc PRIVATE
 
 target_include_directories(axslcc PRIVATE 3rdparty/yasio)
 
+# DXC is provided by 3rdparty/dxc (auto-downloaded prebuilt)
+target_include_directories(axslcc PRIVATE "${DXC_INCLUDE_DIR}")
+target_link_libraries(axslcc PRIVATE "${DXC_LIBRARY}")
+
 if(WIN32)
-    target_link_libraries(axslcc PRIVATE dxcompiler dxguid d3dcompiler)
+    target_link_libraries(axslcc PRIVATE dxguid d3dcompiler)
+elseif(APPLE)
+    set_target_properties(axslcc PROPERTIES BUILD_RPATH "@loader_path" INSTALL_RPATH "@loader_path")
+else()
+    set_target_properties(axslcc PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+endif()
+
+if(DXC_RUNTIME)
+    add_custom_command(TARGET axslcc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DXC_RUNTIME}" "$<TARGET_FILE_DIR:axslcc>")
+else()
+    message(WARNING "DXC runtime library was not found for packaging; axslcc may require a system runtime")
+endif()
+
+if(WIN32 AND DXC_RUNTIME_DXIL)
+    add_custom_command(TARGET axslcc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DXC_RUNTIME_DXIL}" "$<TARGET_FILE_DIR:axslcc>")
 endif()
 
 # ------------------------------------------------------------------------------
@@ -217,3 +245,62 @@ endforeach()
 if(MSVC_IDE)
     set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT axslcc)
 endif()
+
+# ------------------------------------------------------------------------------
+# Generate README.md with version info
+# ------------------------------------------------------------------------------
+file(STRINGS "${CMAKE_SOURCE_DIR}/src/version.h" _axslcc_ver_line
+     REGEX "^#define AXSLCC_VERSION_STRING ")
+string(REGEX REPLACE "^#define AXSLCC_VERSION_STRING \"(.+)\"" "\\1"
+       AXSLCC_VERSION "${_axslcc_ver_line}")
+
+# DXC_FXC_VERSION is only set on Windows
+if(NOT DXC_FXC_VERSION)
+    set(DXC_FXC_VERSION "N/A (non-Windows)")
+endif()
+
+configure_file("${CMAKE_SOURCE_DIR}/cmake/README.md.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/README.md" @ONLY)
+
+# ------------------------------------------------------------------------------
+# Install rules — all under COMPONENT axslcc so users can do:
+#   cmake --install build --component axslcc
+# ------------------------------------------------------------------------------
+install(TARGETS axslcc RUNTIME DESTINATION bin COMPONENT axslcc)
+
+if(DXC_RUNTIME)
+    install(FILES "${DXC_RUNTIME}" DESTINATION bin COMPONENT axslcc)
+endif()
+if(WIN32 AND DXC_RUNTIME_DXIL)
+    install(FILES "${DXC_RUNTIME_DXIL}" DESTINATION bin COMPONENT axslcc)
+endif()
+if(WIN32 AND DXC_FXC_RUNTIME)
+    install(FILES "${DXC_FXC_RUNTIME}" DESTINATION bin COMPONENT axslcc)
+endif()
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/README.md"
+        DESTINATION . COMPONENT axslcc)
+
+# License files
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+        DESTINATION . COMPONENT axslcc)
+install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/dxc/LICENSE-fxc.txt"
+        DESTINATION . COMPONENT axslcc)
+
+# DXC license (copied to _x/ by 3rdparty/dxc/CMakeLists.txt)
+set(_dxc_license "${CMAKE_SOURCE_DIR}/3rdparty/dxc/_x/LICENSE-dxc.txt")
+if(EXISTS "${_dxc_license}")
+    install(FILES "${_dxc_license}"
+            DESTINATION . COMPONENT axslcc)
+endif()
+
+# glslang / spirv-cross / yasio licenses
+install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/glslang/LICENSE.txt"
+        DESTINATION . COMPONENT axslcc
+        RENAME "LICENSE-glslang.txt")
+install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/spirv-cross/LICENSE"
+        DESTINATION . COMPONENT axslcc
+        RENAME "LICENSE-spirv-cross.txt")
+install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/yasio/LICENSE"
+        DESTINATION . COMPONENT axslcc
+        RENAME "LICENSE-yasio.txt")

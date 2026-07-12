@@ -5,8 +5,8 @@
 #include "sc_writer.h"
 #include "utils.h"
 
-#ifdef _WIN32
 #include "dxc_compiler.h"
+#ifdef _WIN32
 #include "fxc_compiler.h"
 #endif
 
@@ -70,6 +70,14 @@ void Compiler::compile(const Options& options)
 
     for (const auto& target : targets)
     {
+        if (options.input_lang == InputLang::HLSL && options.hlsl_frontend == HlslFrontend::Glslang &&
+            target.lang == axslc::SHADER_LANG_SPIRV &&
+            options.vulkan_sampler_mode == VulkanSamplerMode::Separate)
+        {
+            throw std::runtime_error(
+                "--hlsl-frontend glslang cannot emit Vulkan separate samplers; use DXC or --vulkan-samplers combined");
+        }
+
         OutputBlob blob;
         blob.target = target;
 
@@ -109,7 +117,7 @@ void Compiler::compile(const Options& options)
                 auto dxcResult = dxc::compile_source(hlslSource, stage,
                                                        options.include_dirs, all_defines,
                                                        target.profile, options.opt_level, options.input);
-                blob.data = std::move(dxcResult.dxil);
+                blob.data = std::move(dxcResult.object);
             }
 
             if (options.archive)
@@ -120,6 +128,15 @@ void Compiler::compile(const Options& options)
         {
             if (target.lang == axslc::SHADER_LANG_SPIRV)
             {
+                if (options.vulkan_sampler_mode == VulkanSamplerMode::Separate)
+                {
+                    blob.data = spirv::spirv_to_bytes(unit.spirv);
+                    if (options.archive)
+                        reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
+                    outputs.push_back(std::move(blob));
+                    continue;
+                }
+
                 // Round-trip SPIR-V through GLSL to combine SamplerState declarations
                 // from base.hlsli into combined image samplers. The raw glslang SPIR-V
                 // has separate OpTypeSampler descriptors (s0..s21) that conflict with

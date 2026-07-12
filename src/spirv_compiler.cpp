@@ -1,10 +1,12 @@
 #include "spirv_compiler.h"
+#include "dxc_compiler.h"
 #include "utils.h"
 
 #include "SPIRV/GlslangToSpv.h"
 #include "StandAlone/DirStackFileIncluder.h"
 #include "glslang/Public/ResourceLimits.h"
 #include "glslang/Public/ShaderLang.h"
+#include "spirv-tools/optimizer.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -164,6 +166,34 @@ CompileUnit compile_input(const Options& options, const Target& target)
 
     auto all_defines = options.defines;
     all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+
+    if (options.input_lang == InputLang::HLSL && options.hlsl_frontend == HlslFrontend::DXC)
+    {
+        auto result = dxc::compile_spirv(source_text, options.stage, options.include_dirs,
+                                         all_defines, options.opt_level,
+                                         target.lang == axslc::SHADER_LANG_SPIRV &&
+                                             options.vulkan_sampler_mode == VulkanSamplerMode::Separate,
+                                         options.input);
+        if (result.object.size() % sizeof(uint32_t) != 0)
+            throw std::runtime_error("DXC produced a malformed SPIR-V object");
+
+        CompileUnit unit;
+        unit.stage = options.stage;
+        unit.is_hlsl = true;
+        unit.spirv.resize(result.object.size() / sizeof(uint32_t));
+        std::memcpy(unit.spirv.data(), result.object.data(), result.object.size());
+
+        // DXC preserves all globals from base.hlsli as entry-point interface
+        // variables. Remove unused sampler presets before reflection/layout
+        // generation; otherwise a shader using one sampler would expose all 22.
+        spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1);
+        optimizer.RegisterPassFromFlag("--eliminate-dead-variables", false);
+        std::vector<uint32_t> optimized;
+        if (!optimizer.Run(unit.spirv.data(), unit.spirv.size(), &optimized))
+            throw std::runtime_error("failed to eliminate unused DXC SPIR-V resources");
+        unit.spirv = std::move(optimized);
+        return unit;
+    }
 
     std::string combined_log;
     for (EShLanguage stage : candidates) {

@@ -56,31 +56,28 @@ jobs:
         workflow_conclusion: success
     - name: Create packages
       if: ${{ steps.check_ver.outputs.release_ver != '' }}
+      shell: bash
       run: |
-        curl -L https://github.com/simdsoft/1kiss/releases/download/devtools/d3dcompiler_47-x64.dll -o ./axslcc-win-x64/d3dcompiler_47.dll
-        curl -L https://github.com/simdsoft/1kiss/releases/download/devtools/d3dcompiler_47-arm64.dll -o ./axslcc-win-arm64/d3dcompiler_47.dll
-        ls -l ./axslcc-win-x64
-        ls -l ./axslcc-win-arm64
+        set -e
         mkdir -p pkg_dir
         prefix=axslcc-${{ steps.check_ver.outputs.release_ver }}
-        ls -l axslcc-linux-x64
-        ls -l axslcc-linux-arm64
-        ls -l axslcc-osx-x64
-        ls -l axslcc-osx-arm64
-        sudo chmod u+x ./axslcc-linux-x64/axslcc
-        sudo chmod u+x ./axslcc-linux-arm64/axslcc
-        sudo chmod u+x ./axslcc-osx-x64/axslcc
-        sudo chmod u+x ./axslcc-osx-arm64/axslcc
-        ls -l axslcc-linux-x64
-        ls -l axslcc-linux-arm64
-        ls -l axslcc-osx-x64
-        ls -l axslcc-osx-arm64
-        tar -czvf ./pkg_dir/$prefix-linux-x64.tar.gz -C ./axslcc-linux-x64 axslcc
-        tar -czvf ./pkg_dir/$prefix-linux-arm64.tar.gz -C ./axslcc-linux-arm64 axslcc
-        tar -czvf ./pkg_dir/$prefix-osx-x64.tar.gz -C ./axslcc-osx-x64 axslcc
-        tar -czvf ./pkg_dir/$prefix-osx-arm64.tar.gz -C ./axslcc-osx-arm64 axslcc
-        sh -c "cd ./axslcc-win-x64; zip ../pkg_dir/$prefix-win-x64.zip axslcc.exe d3dcompiler_47.dll"
-        sh -c "cd ./axslcc-win-arm64; zip ../pkg_dir/$prefix-win-arm64.zip axslcc.exe d3dcompiler_47.dll"
+
+        # Windows: rename artifact dir to root folder name, then zip
+        for plat in win-x64 win-arm64; do
+          [ -d ./axslcc-$plat ] || continue
+          mv ./axslcc-$plat ./$prefix-$plat
+          zip -r ./pkg_dir/$prefix-$plat.zip ./$prefix-$plat
+        done
+
+        # Linux and macOS: rename, fix executable bit, then tar.gz
+        for plat in linux-x64 linux-arm64 osx-x64 osx-arm64; do
+          [ -d ./axslcc-$plat ] || continue
+          mv ./axslcc-$plat ./$prefix-$plat
+          chmod +x ./$prefix-$plat/bin/axslcc
+          tar -czvf ./pkg_dir/$prefix-$plat.tar.gz ./$prefix-$plat
+        done
+
+        ls -lh pkg_dir/
     - name: Publish to github release page
       if: ${{ steps.check_ver.outputs.release_ver != '' }}
       uses: softprops/action-gh-release@v2

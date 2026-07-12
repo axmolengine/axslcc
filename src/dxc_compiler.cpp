@@ -1,122 +1,240 @@
-#ifdef _WIN32
-
 #include "dxc_compiler.h"
 
-#include <windows.h>
-#include <dxcapi.h>
+#ifdef _WIN32
+#    ifndef NOMINMAX
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#endif
+#include <dxc/dxcapi.h>
 
-#include <atlbase.h>
+#include <algorithm>
+#include <climits>
+#include <cstdint>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace axslcc::dxc
 {
-
 namespace
 {
 
-const wchar_t* profile_for_stage(ShaderStage stage, int sm)
+template <class T>
+class ComPtr
 {
-    switch (stage)
+public:
+    ComPtr() = default;
+    ~ComPtr() { reset(); }
+    ComPtr(const ComPtr&) = delete;
+    ComPtr& operator=(const ComPtr&) = delete;
+    ComPtr(ComPtr&& rhs) noexcept : _ptr(std::exchange(rhs._ptr, nullptr)) {}
+    ComPtr& operator=(ComPtr&& rhs) noexcept
     {
-    case ShaderStage::Vertex:
-        if (sm == 50) return L"vs_5_0";
-        if (sm == 51) return L"vs_5_1";
-        return L"vs_6_0";
-    case ShaderStage::Fragment:
-        if (sm == 50) return L"ps_5_0";
-        if (sm == 51) return L"ps_5_1";
-        return L"ps_6_0";
-    case ShaderStage::Compute:
-        if (sm == 50) return L"cs_5_0";
-        if (sm == 51) return L"cs_5_1";
-        return L"cs_6_0";
-    default:
-        return L"vs_6_0";
+        if (this != &rhs) {
+            reset();
+            _ptr = std::exchange(rhs._ptr, nullptr);
+        }
+        return *this;
     }
+    T* get() const { return _ptr; }
+    T* operator->() const { return _ptr; }
+    T** put()
+    {
+        reset();
+        return &_ptr;
+    }
+    void reset()
+    {
+        if (_ptr) {
+            _ptr->Release();
+            _ptr = nullptr;
+        }
+    }
+    explicit operator bool() const { return _ptr != nullptr; }
+
+private:
+    T* _ptr = nullptr;
+};
+
+template <class T>
+void create_instance(REFCLSID clsid, ComPtr<T>& out, const char* what)
+{
+    if (FAILED(DxcCreateInstance(clsid, __uuidof(T), reinterpret_cast<void**>(out.put()))))
+        throw std::runtime_error(std::string("failed to create DXC ") + what);
+}
+
+std::wstring widen_utf8(std::string_view value)
+{
+    // DXC command-line switches and repository paths are UTF-8. DXC's Unix API
+    // uses wchar_t as well, so perform a small platform-independent conversion.
+    std::wstring result;
+    result.reserve(value.size());
+    size_t i = 0;
+    while (i < value.size()) {
+        uint32_t cp = static_cast<unsigned char>(value[i++]);
+        if ((cp & 0x80u) == 0) {
+        } else if ((cp & 0xe0u) == 0xc0u && i < value.size()) {
+            cp = ((cp & 0x1fu) << 6) | (static_cast<unsigned char>(value[i++]) & 0x3fu);
+        } else if ((cp & 0xf0u) == 0xe0u && i + 1 < value.size()) {
+            cp = ((cp & 0x0fu) << 12) | ((static_cast<unsigned char>(value[i++]) & 0x3fu) << 6);
+            cp |= static_cast<unsigned char>(value[i++]) & 0x3fu;
+        } else if ((cp & 0xf8u) == 0xf0u && i + 2 < value.size()) {
+            cp = ((cp & 0x07u) << 18) | ((static_cast<unsigned char>(value[i++]) & 0x3fu) << 12);
+            cp |= (static_cast<unsigned char>(value[i++]) & 0x3fu) << 6;
+            cp |= static_cast<unsigned char>(value[i++]) & 0x3fu;
+        } else {
+            cp = 0xfffdu;
+        }
+#if WCHAR_MAX <= 0xffff
+        if (cp > 0xffffu) {
+            cp -= 0x10000u;
+            result.push_back(static_cast<wchar_t>(0xd800u + (cp >> 10)));
+            result.push_back(static_cast<wchar_t>(0xdc00u + (cp & 0x3ffu)));
+        } else
+#endif
+            result.push_back(static_cast<wchar_t>(cp));
+    }
+    return result;
+}
+
+std::string path_utf8(const fs::path& path)
+{
+    auto value = path.u8string();
+    return std::string(reinterpret_cast<const char*>(value.data()), value.size());
+}
+
+const wchar_t* profile_for_stage(ShaderStage stage, bool spirv, int sm)
+{
+    // DXC promotes pre-SM6 profiles. Use SM6 for SPIR-V while accepting the
+    // project's HLSL 5.1 source language; DXBC remains an FXC responsibility.
+    if (spirv || sm >= 60) {
+        switch (stage) {
+        case ShaderStage::Vertex: return L"vs_6_0";
+        case ShaderStage::Fragment: return L"ps_6_0";
+        case ShaderStage::Compute: return L"cs_6_0";
+        }
+    }
+    switch (stage) {
+    case ShaderStage::Vertex: return sm <= 50 ? L"vs_5_0" : L"vs_5_1";
+    case ShaderStage::Fragment: return sm <= 50 ? L"ps_5_0" : L"ps_5_1";
+    case ShaderStage::Compute: return sm <= 50 ? L"cs_5_0" : L"cs_5_1";
+    }
+    return L"vs_6_0";
+}
+
+DxcResult compile_impl(const std::string& hlsl, ShaderStage stage,
+                       const std::vector<fs::path>& includeDirs,
+                       const std::vector<std::string>& defines,
+                       int profile, int optLevel, const fs::path& sourceName,
+                       bool spirv, bool separateSamplerBindings)
+{
+    ComPtr<IDxcUtils> utils;
+    ComPtr<IDxcCompiler3> compiler;
+    ComPtr<IDxcIncludeHandler> includeHandler;
+    create_instance(CLSID_DxcUtils, utils, "utilities");
+    create_instance(CLSID_DxcCompiler, compiler, "compiler");
+    if (FAILED(utils->CreateDefaultIncludeHandler(includeHandler.put())))
+        throw std::runtime_error("failed to create DXC include handler");
+
+    DxcBuffer source{};
+    source.Ptr = hlsl.data();
+    source.Size = hlsl.size();
+    source.Encoding = DXC_CP_UTF8;
+
+    std::vector<std::wstring> storage;
+    storage.reserve(16 + includeDirs.size() * 2 + defines.size() * 2);
+    auto push = [&](std::wstring value) { storage.emplace_back(std::move(value)); };
+
+    push(L"-E"); push(L"main");
+    push(L"-T"); push(profile_for_stage(stage, spirv, profile));
+    push(L"-HV"); push(L"2021");
+    push(L"-Ges");
+    if (spirv) {
+        push(L"-spirv");
+        push(L"-fspv-target-env=vulkan1.1");
+        if (separateSamplerBindings) {
+            // HLSL register classes share Vulkan's binding namespace. Keep s#
+            // disjoint from t# without changing the source-level registers.
+            push(L"-fvk-s-shift"); push(L"1024"); push(L"all");
+        }
+    }
+    switch (optLevel) {
+    case 0: push(L"-Od"); break;
+    case 1: push(L"-O1"); break;
+    case 2: push(L"-O2"); break;
+    default: push(L"-O3"); break;
+    }
+
+    std::vector<fs::path> searchDirs;
+    if (!sourceName.empty() && !sourceName.parent_path().empty())
+        searchDirs.push_back(sourceName.parent_path());
+    searchDirs.insert(searchDirs.end(), includeDirs.begin(), includeDirs.end());
+    for (const auto& dir : searchDirs) {
+        push(L"-I");
+        push(widen_utf8(path_utf8(dir)));
+    }
+    for (const auto& define : defines) {
+        push(L"-D");
+        push(widen_utf8(define));
+    }
+    if (!sourceName.empty())
+        push(widen_utf8(path_utf8(sourceName)));
+
+    std::vector<LPCWSTR> args;
+    args.reserve(storage.size());
+    for (const auto& item : storage)
+        args.push_back(item.c_str());
+
+    ComPtr<IDxcResult> result;
+    HRESULT hr = compiler->Compile(&source, args.data(), static_cast<uint32_t>(args.size()),
+                                   includeHandler.get(), __uuidof(IDxcResult),
+                                   reinterpret_cast<void**>(result.put()));
+    if (FAILED(hr) || !result)
+        throw std::runtime_error("DXC Compile() call failed");
+
+    ComPtr<IDxcBlobUtf8> errors;
+    result->GetOutput(DXC_OUT_ERRORS, __uuidof(IDxcBlobUtf8),
+                      reinterpret_cast<void**>(errors.put()), nullptr);
+
+    HRESULT status = E_FAIL;
+    result->GetStatus(&status);
+    if (FAILED(status)) {
+        std::string message = "DXC compilation failed";
+        if (errors && errors->GetStringLength())
+            message.assign(errors->GetStringPointer(), errors->GetStringLength());
+        throw std::runtime_error(message);
+    }
+
+    ComPtr<IDxcBlob> object;
+    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, __uuidof(IDxcBlob),
+                                 reinterpret_cast<void**>(object.put()), nullptr)) || !object)
+        throw std::runtime_error("DXC did not produce an output object");
+
+    auto* begin = static_cast<const uint8_t*>(object->GetBufferPointer());
+    DxcResult output;
+    output.object.assign(begin, begin + object->GetBufferSize());
+    return output;
 }
 
 } // namespace
 
 DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
-                          const std::vector<fs::path>& includeDirs,
-                          const std::vector<std::string>& defines,
-                          int profile, int opt_level,
-                          const fs::path& sourceName)
+                         const std::vector<fs::path>& includeDirs,
+                         const std::vector<std::string>& defines,
+                         int profile, int optLevel, const fs::path& sourceName)
 {
-    CComPtr<IDxcLibrary> library;
-    CComPtr<IDxcCompiler> compiler;
-    CComPtr<IDxcIncludeHandler> includeHandler;
+    return compile_impl(hlsl, stage, includeDirs, defines, profile, optLevel, sourceName, false, false);
+}
 
-    if (FAILED(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library))))
-        throw std::runtime_error("Failed to create DXC library instance");
-
-    if (FAILED(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler))))
-        throw std::runtime_error("Failed to create DXC compiler instance");
-
-    library->CreateIncludeHandler(&includeHandler);
-
-    CComPtr<IDxcBlobEncoding> sourceBlob;
-    if (FAILED(library->CreateBlobWithEncodingOnHeapCopy(
-            hlsl.data(), static_cast<UINT32>(hlsl.size()), CP_UTF8, &sourceBlob)))
-        throw std::runtime_error("Failed to create DXC source blob");
-
-    std::wstring sourceNameW = sourceName.wstring();
-    LPCWSTR sourceNamePtr = sourceName.empty() ? nullptr : sourceNameW.c_str();
-
-    std::vector<std::wstring> argStorage;
-    std::vector<LPCWSTR> args;
-
-    // Optimization level
-    switch (opt_level) {
-    case 0: argStorage.push_back(L"/Od"); break;
-    case 1: argStorage.push_back(L"/O1"); break;
-    case 2: argStorage.push_back(L"/O2"); break;
-    case 3: argStorage.push_back(L"/O3"); break;
-    }
-
-    for (const auto& inc : includeDirs)
-    {
-        argStorage.push_back(L"-I");
-        argStorage.push_back(inc.wstring());
-    }
-    for (const auto& def : defines)
-    {
-        argStorage.push_back(L"-D");
-        argStorage.push_back(std::wstring(def.begin(), def.end()));
-    }
-    for (auto& a : argStorage)
-        args.push_back(a.c_str());
-
-    CComPtr<IDxcOperationResult> opResult;
-    HRESULT hr = compiler->Compile(
-        sourceBlob, sourceNamePtr, L"main", profile_for_stage(stage, profile),
-        args.data(), static_cast<UINT>(args.size()), nullptr, 0, includeHandler, &opResult);
-
-    if (FAILED(hr))
-        throw std::runtime_error("DXC Compile() call failed");
-
-    HRESULT status;
-    opResult->GetStatus(&status);
-    if (FAILED(status))
-    {
-        CComPtr<IDxcBlobEncoding> errors;
-        opResult->GetErrorBuffer(&errors);
-        std::string msg;
-        if (errors)
-            msg.assign((const char*)errors->GetBufferPointer(), errors->GetBufferSize());
-        throw std::runtime_error(msg);
-    }
-
-    CComPtr<IDxcBlob> dxilBlob;
-    opResult->GetResult(&dxilBlob);
-
-    DxcResult out;
-    out.dxil.assign((uint8_t*)dxilBlob->GetBufferPointer(),
-                     (uint8_t*)dxilBlob->GetBufferPointer() + dxilBlob->GetBufferSize());
-
-    return out;
+DxcResult compile_spirv(const std::string& hlsl, ShaderStage stage,
+                        const std::vector<fs::path>& includeDirs,
+                        const std::vector<std::string>& defines,
+                        int optLevel, bool separateSamplerBindings, const fs::path& sourceName)
+{
+    return compile_impl(hlsl, stage, includeDirs, defines, 60, optLevel, sourceName, true,
+                        separateSamplerBindings);
 }
 
 } // namespace axslcc::dxc
-
-#endif // _WIN32

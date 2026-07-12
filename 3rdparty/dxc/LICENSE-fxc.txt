@@ -1,0 +1,11 @@
+d3dcompiler_47.dll is a component of the Microsoft Windows SDK
+(version 10.0.28000.1839) and is subject to the Microsoft Windows
+Software Development Kit (SDK) End User License Agreement (EULA).
+
+Redistribution of this file must comply with the terms of the
+Windows SDK EULA.  You may obtain a copy of the Windows SDK EULA at:
+
+  https://go.microsoft.com/fwlink/?LinkId=13120000
+
+Or install the Windows SDK and review the license terms included
+in the installation.
