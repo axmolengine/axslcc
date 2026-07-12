@@ -101,14 +101,14 @@ void Compiler::compile(const Options& options)
             {
                 auto fxcResult = fxc::compile_hlsl(hlslSource, stage,
                                                      options.include_dirs, all_defines,
-                                                     target.profile, options.input);
+                                                     target.profile, options.opt_level, options.input);
                 blob.data = std::move(fxcResult.dxbc);
             }
             else
             {
                 auto dxcResult = dxc::compile_source(hlslSource, stage,
                                                        options.include_dirs, all_defines,
-                                                       target.profile, options.input);
+                                                       target.profile, options.opt_level, options.input);
                 blob.data = std::move(dxcResult.dxil);
             }
 
@@ -182,7 +182,7 @@ void Compiler::compile(const Options& options)
                 // Step 4: Re-compile GLSL to SPIR-V
                 std::vector<uint32_t> combinedSpirv;
                 std::string log;
-                if (!spirv::compile_glsl_to_spirv(glslSource, unit.stage, combinedSpirv, log))
+                if (!spirv::compile_glsl_to_spirv(glslSource, unit.stage, combinedSpirv, options.opt_level, log))
                 {
                     std::cerr << "axslcc: error re-compiling GLSL to SPIR-V for "
                               << options.input.filename().string() << ":\n  " << log << std::endl;

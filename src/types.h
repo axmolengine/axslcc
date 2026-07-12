@@ -55,6 +55,7 @@ struct Options
     std::vector<Target> targets;
     bool archive = false;              // -a
     bool keep_source = false;          // -S   keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)
+    int opt_level = 0;                 // -O0 (debug) through -O3
     InputLang input_lang = InputLang::HLSL; // -x
     bool xlang = false;                 // true if -x was explicitly specified
     ShaderStage stage = ShaderStage::Vertex;  // detected from filename

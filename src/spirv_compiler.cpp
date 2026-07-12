@@ -117,9 +117,25 @@ bool compile_to_spirv(const Options& options, const std::vector<std::string>& de
     }
 
     glslang::SpvOptions spv_options;
-    spv_options.generateDebugInfo = true;
     spv_options.validate = false;
-    spv_options.emitNonSemanticShaderDebugInfo = true;
+    switch (options.opt_level) {
+    case 0:
+        spv_options.generateDebugInfo = true;
+        spv_options.disableOptimizer = true;
+        spv_options.emitNonSemanticShaderDebugInfo = true;
+        break;
+    case 1:
+        spv_options.disableOptimizer = false;
+        spv_options.optimizeSize = true;
+        break;
+    case 2:
+        spv_options.disableOptimizer = false;
+        break;
+    case 3:
+        spv_options.disableOptimizer = false;
+        spv_options.validate = true;
+        break;
+    }
     spv::SpvBuildLogger logger;
     glslang::GlslangToSpv(*intermediate, spirv, &logger, &spv_options);
     log = logger.getAllMessages();
@@ -184,7 +200,8 @@ CompileUnit compile_input(const Options& options, const Target& target)
 }
 
 bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,
-                           std::vector<uint32_t>& spirv, std::string& log)
+                           std::vector<uint32_t>& spirv, int opt_level,
+                           std::string& log)
 {
     EShLanguage eshStage;
     switch (stage) {
@@ -245,9 +262,25 @@ bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,
     }
 
     glslang::SpvOptions spv_options;
-    spv_options.generateDebugInfo = true;
     spv_options.validate = false;
-    spv_options.emitNonSemanticShaderDebugInfo = true;
+    switch (opt_level) {
+    case 0:
+        spv_options.generateDebugInfo = true;
+        spv_options.disableOptimizer = true;
+        spv_options.emitNonSemanticShaderDebugInfo = true;
+        break;
+    case 1:
+        spv_options.disableOptimizer = false;
+        spv_options.optimizeSize = true;
+        break;
+    case 2:
+        spv_options.disableOptimizer = false;
+        break;
+    case 3:
+        spv_options.disableOptimizer = false;
+        spv_options.validate = true;
+        break;
+    }
     spv::SpvBuildLogger logger;
     glslang::GlslangToSpv(*intermediate, spirv, &logger, &spv_options);
     log = logger.getAllMessages();

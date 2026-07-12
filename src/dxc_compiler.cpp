@@ -40,7 +40,7 @@ const wchar_t* profile_for_stage(ShaderStage stage, int sm)
 DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
                           const std::vector<fs::path>& includeDirs,
                           const std::vector<std::string>& defines,
-                          int profile,
+                          int profile, int opt_level,
                           const fs::path& sourceName)
 {
     CComPtr<IDxcLibrary> library;
@@ -65,6 +65,14 @@ DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
 
     std::vector<std::wstring> argStorage;
     std::vector<LPCWSTR> args;
+
+    // Optimization level
+    switch (opt_level) {
+    case 0: argStorage.push_back(L"/Od"); break;
+    case 1: argStorage.push_back(L"/O1"); break;
+    case 2: argStorage.push_back(L"/O2"); break;
+    case 3: argStorage.push_back(L"/O3"); break;
+    }
 
     for (const auto& inc : includeDirs)
     {

@@ -77,7 +77,7 @@ static const char* profile_for_stage(ShaderStage stage, int sm)
 FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
                         const std::vector<fs::path>& includeDirs,
                         const std::vector<std::string>& defines,
-                        int profile,
+                        int profile, int opt_level,
                         const fs::path& sourceName)
 {
     std::vector<D3D_SHADER_MACRO> macros;
@@ -90,10 +90,13 @@ FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
     }
     macros.push_back({nullptr, nullptr});
 
-    UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL2 | D3DCOMPILE_ENABLE_STRICTNESS;
-#if !defined(NDEBUG)
-    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
+    UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+    switch (opt_level) {
+    case 0: flags |= D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG; break;
+    case 1: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL1; break;
+    case 2: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL2; break;
+    case 3: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3; break;
+    }
 
     DirIncludeHandler includeHandler(includeDirs, sourceName);
 

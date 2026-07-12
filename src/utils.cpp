@@ -129,6 +129,7 @@ void print_help()
         << "  -a                 Write Axmol .sc archive with reflection data\n"
         << "  -x <lang>          Input language: hlsl, glsl (default: hlsl)\n"
         << "  -S                 Keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)\n"
+        << "  -O<level>          Optimization level: 0 (debug, default), 1 (favor size), 2 (favor speed), 3 (aggressive)\n"
         << "  -I <dir>           Include directory (repeatable)\n"
         << "  -D <name>[=<val>]  Preprocessor define (repeatable)\n"
         << "  --cvar <name>      C variable name for embedded shader data\n"
@@ -276,6 +277,14 @@ Options parse_args(int argc, char** argv)
             options.xlang = true;
         } else if (arg == "-S") {
             options.keep_source = true;
+        } else if (arg == "-O0") {
+            options.opt_level = 0;
+        } else if (arg == "-O1") {
+            options.opt_level = 1;
+        } else if (arg == "-O2") {
+            options.opt_level = 2;
+        } else if (arg == "-O3") {
+            options.opt_level = 3;
         } else if (arg == "-I") {
             require_value(argc, argv, i, "-I", value);
             options.include_dirs.emplace_back(value);

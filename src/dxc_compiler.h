@@ -20,7 +20,7 @@ struct DxcResult
 DxcResult compile_source(const std::string& hlsl, ShaderStage stage,
                           const std::vector<fs::path>& includeDirs,
                           const std::vector<std::string>& defines,
-                          int profile = 60,
+                          int profile, int opt_level,
                           const fs::path& sourceName = {});
 
 } // namespace axslcc::dxc

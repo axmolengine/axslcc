@@ -22,7 +22,7 @@ struct FxcResult
 FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
                         const std::vector<fs::path>& includeDirs,
                         const std::vector<std::string>& defines,
-                        int profile,
+                        int profile, int opt_level,
                         const fs::path& sourceName = {});
 
 } // namespace axslcc::fxc
