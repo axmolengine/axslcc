@@ -120,21 +120,19 @@ void print_help()
     std::cerr
         << "axslcc - Axmol shader compiler\n\n"
         << "Usage:\n"
-        << "  axslcc --input <file> [--output <path>] --target=<targets> [--sc] [--reflect]\n"
-        << "  axslcc --input <glsl> --output <path> --target=d3d12 --migrate\n\n"
+        << "  axslcc [options] <input>\n\n"
         << "Targets:\n"
         << "  d3d11, d3d12, vk, mtl, gl, gles\n\n"
         << "Options:\n"
-        << "  --input <file>      Input HLSL 5.1 or GLSL file\n"
-        << "  --output <path>     Output file or basename. Defaults to input stem\n"
-        << "  --target <targets>  Semicolon-separated output targets\n"
-        << "  --sc                Write one Axmol .sc file containing all targets\n"
-        << "  --reflect           Include reflection data in .sc output\n"
-        << "  --migrate           GLSL to HLSL migration mode\n"
-        << "  --dxbc              Compile SPIRV-Cross HLSL output to D3D bytecode (DXBC/DXIL, Windows only)\n"
-        << "  -DNAME[=VALUE]      Preprocessor define\n"
-        << "  -I<dir>             Include directory\n"
-        << "  --version           Print axslcc version and exit\n";
+        << "  -o <path>          Output file or basename (default: input stem)\n"
+        << "  -t <target>        Output target (repeatable)\n"
+        << "  -a                 Write Axmol .sc archive with reflection data\n"
+        << "  -x <lang>          Input language: hlsl, glsl (default: hlsl)\n"
+        << "  -S                 Keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)\n"
+        << "  -I <dir>           Include directory (repeatable)\n"
+        << "  -D <name>[=<val>]  Preprocessor define (repeatable)\n"
+        << "  --cvar <name>      C variable name for embedded shader data\n"
+        << "  --version          Print version and exit\n";
 }
 
 void print_version()
@@ -253,80 +251,64 @@ Options parse_args(int argc, char** argv)
         } else if (arg == "--version") {
             print_version();
             std::exit(0);
-        } else if (arg == "--input") {
-            require_value(argc, argv, i, "--input", value);
-            options.input = value;
-        } else if (starts_with(arg, "--input=")) {
-            options.input = arg.substr(8);
-        } else if (arg == "--output") {
-            require_value(argc, argv, i, "--output", value);
+        } else if (arg == "-o") {
+            require_value(argc, argv, i, "-o", value);
             options.output = value;
-        } else if (starts_with(arg, "--output=")) {
-            options.output = arg.substr(9);
-        } else if (arg == "--target") {
-            require_value(argc, argv, i, "--target", value);
-            for (const auto& item : split(value, ';'))
-                options.targets.push_back(parse_target(item));
-        } else if (starts_with(arg, "--target=")) {
-            for (const auto& item : split(arg.substr(9), ';'))
-                options.targets.push_back(parse_target(item));
-        } else if (arg == "--sc") {
-            options.sc = true;
-        } else if (arg == "--reflect") {
-            options.reflect = true;
-        } else if (arg == "--migrate") {
-            options.migrate = true;
-        } else if (arg == "--dxbc") {
-            options.dxbc = true;
-        } else if (starts_with(arg, "-D")) {
-            if (arg.size() == 2) {
-                require_value(argc, argv, i, "-D", value);
-                options.defines.push_back(value);
-            } else {
-                options.defines.push_back(arg.substr(2));
-            }
-        } else if (starts_with(arg, "-I")) {
-            if (arg.size() == 2) {
-                require_value(argc, argv, i, "-I", value);
-                options.include_dirs.emplace_back(value);
-            } else {
-                options.include_dirs.emplace_back(arg.substr(2));
-            }
+        } else if (starts_with(arg, "-o") && arg.size() > 2) {
+            options.output = arg.substr(2);
+        } else if (arg == "-t") {
+            require_value(argc, argv, i, "-t", value);
+            options.targets.push_back(parse_target(value));
+        } else if (arg == "-a") {
+            options.archive = true;
+        } else if (arg == "-x") {
+            require_value(argc, argv, i, "-x", value);
+            auto lang = lower(value);
+            if (lang == "hlsl")
+                options.input_lang = InputLang::HLSL;
+            else if (lang == "glsl")
+                options.input_lang = InputLang::GLSL;
+            else
+                throw std::runtime_error("unknown input language '" + value + "' (expected hlsl or glsl)");
+            options.xlang = true;
+        } else if (arg == "-S") {
+            options.keep_source = true;
+        } else if (arg == "-I") {
+            require_value(argc, argv, i, "-I", value);
+            options.include_dirs.emplace_back(value);
+        } else if (starts_with(arg, "-I") && arg.size() > 2) {
+            options.include_dirs.emplace_back(arg.substr(2));
+        } else if (arg == "-D") {
+            require_value(argc, argv, i, "-D", value);
+            options.defines.push_back(value);
+        } else if (starts_with(arg, "-D") && arg.size() > 2) {
+            options.defines.push_back(arg.substr(2));
+        } else if (arg == "--cvar") {
+            require_value(argc, argv, i, "--cvar", value);
+            options.cvar = value;
+        } else if (!arg.empty() && arg[0] != '-') {
+            if (!options.input.empty())
+                throw std::runtime_error("multiple input files specified: '" + arg + "'");
+            options.input = arg;
         } else {
             throw std::runtime_error("unknown option '" + arg + "'");
         }
     }
 
     if (options.input.empty())
-        throw std::runtime_error("--input is required");
+        throw std::runtime_error("no input file specified");
     if (options.targets.empty())
-        throw std::runtime_error("--target is required");
-    if (options.reflect && !options.sc)
-        throw std::runtime_error("--reflect is only valid with --sc");
+        throw std::runtime_error("at least one target (-t) is required");
     if (!fs::exists(options.input))
         throw std::runtime_error("input file does not exist: " + options.input.string());
 
+    auto info = classify(options.input);
+    options.stage = info.stage;
+    if (!options.xlang)
+        options.input_lang = info.lang;
+
     if (options.output.empty())
         options.output = options.input.parent_path() / options.input.stem();
-
-    if (options.migrate) {
-        auto ext = lower(options.input.extension().string());
-        if (ext == ".hlsl" || ext == ".fx")
-            throw std::runtime_error("--migrate expects GLSL input");
-        for (const auto& target : options.targets) {
-            if (target.lang != axslc::SHADER_LANG_HLSL)
-                throw std::runtime_error("--migrate only supports HLSL output targets");
-        }
-    }
-
-#ifdef _WIN32
-    if (options.dxbc) {
-        if (options.migrate)
-            throw std::runtime_error("--dxbc is not compatible with --migrate");
-        if (!utils::is_hlsl_source(options.input))
-            throw std::runtime_error("--dxbc requires HLSL input (.hlsl or .fx)");
-    }
-#endif
 
     fill_builtin_target_defines(options.targets);
 
@@ -354,18 +336,38 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data)
     out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
 }
 
-std::optional<ShaderStage> stage_from_name(const fs::path& input)
+ShaderInfo classify(const fs::path& input)
 {
+    ShaderInfo info;
+
     std::string stem = lower(input.stem().string());
+    std::string ext = lower(input.extension().string());
 
-    if (stem.ends_with("_vs"))
-        return ShaderStage::Vertex;
-    if (stem.ends_with("_ps"))
-        return ShaderStage::Fragment;
-    if (stem.ends_with("_cs"))
-        return ShaderStage::Compute;
+    // Detect stage
+    if (ext == ".vert")
+        info.stage = ShaderStage::Vertex;
+    else if (ext == ".frag")
+        info.stage = ShaderStage::Fragment;
+    else if (ext == ".comp")
+        info.stage = ShaderStage::Compute;
+    else if (stem.ends_with("_vs"))
+        info.stage = ShaderStage::Vertex;
+    else if (stem.ends_with("_ps"))
+        info.stage = ShaderStage::Fragment;
+    else if (stem.ends_with("_cs"))
+        info.stage = ShaderStage::Compute;
+    else
+        throw std::runtime_error("cannot determine shader stage from filename '" +
+                                 input.string() + "' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)");
 
-    return std::nullopt;
+    // Detect language
+    if (ext == ".hlsl" || ext == ".fx" || ext == ".hlsli")
+        info.lang = InputLang::HLSL;
+    else if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".glsl" ||
+             ext == ".geom" || ext == ".tesc" || ext == ".tese")
+        info.lang = InputLang::GLSL;
+
+    return info;
 }
 
 bool is_hlsl_source(const fs::path& input)
@@ -377,7 +379,7 @@ bool is_hlsl_source(const fs::path& input)
 fs::path output_path_for_target(const Options& options, const Target& target)
 {
     fs::path out = options.output;
-    if (options.sc)
+    if (options.archive)
         return out;
 
     std::string ext;

@@ -38,7 +38,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                          const fs::path& input)
 {
     if (target.lang == axslc::SHADER_LANG_SPIRV)
-        return OutputBlob{target, spirv::spirv_to_bytes(spirv), true};
+        return OutputBlob{target, spirv::spirv_to_bytes(spirv)};
 
     auto compiler = make_cross_compiler(target, spirv);
     auto options = compiler->get_common_options();
@@ -141,7 +141,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     std::string code = compiler->compile();
     tlx::byte_buffer bytes(code.begin(), code.end());
     bytes.push_back(0);
-    return OutputBlob{target, std::move(bytes), false};
+    return OutputBlob{target, std::move(bytes)};
 }
 
 } // namespace axslcc::cross

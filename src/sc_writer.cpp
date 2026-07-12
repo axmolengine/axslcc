@@ -43,7 +43,9 @@ void write_struct(yasio::fast_obstream& out, const T& value)
 
 } // namespace
 
-void write_sc(const Options& options, ShaderStage stage, const std::vector<OutputBlob>& outputs,
+void write_archive(const Options& options,
+                      ShaderStage stage,
+                      const std::vector<OutputBlob>& outputs,
     const std::vector<tlx::byte_buffer>& reflections)
 {
     std::vector<ScTarget> targets;
@@ -53,11 +55,10 @@ void write_sc(const Options& options, ShaderStage stage, const std::vector<Outpu
         ScTarget item;
         item.lang = sc_lang(outputs[i].target);
         item.profile = static_cast<uint32_t>(outputs[i].target.profile);
-        if (outputs[i].binary)
+        if (outputs[i].target.bytecode)
             item.profile |= SC_BYTECODE_FLAG;
         item.stage = sc_stage(stage);
         item.code = outputs[i].data;
-        item.binary = outputs[i].binary;
         if (i < reflections.size())
             item.refl = reflections[i];
         targets.push_back(std::move(item));
@@ -90,7 +91,7 @@ void write_sc(const Options& options, ShaderStage stage, const std::vector<Outpu
         out.write<uint32_t>(SC_CHUNK_STAG);
         out.write<uint32_t>(stage_size);
         out.write<uint32_t>(target.stage);
-        out.write<uint32_t>(target.binary ? SC_CHUNK_DATA : SC_CHUNK_CODE);
+        out.write<uint32_t>(SC_CHUNK_CODE);
         out.write<uint32_t>(code_size);
         out.write_bytes(target.code.data(), static_cast<int>(target.code.size()));
 

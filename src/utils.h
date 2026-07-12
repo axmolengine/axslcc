@@ -3,7 +3,6 @@
 #include "types.h"
 
 #include <map>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,7 +40,7 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data);
 
 // ============= Stage & Format Detection =============
 
-std::optional<ShaderStage> stage_from_name(const fs::path& input);
+ShaderInfo classify(const fs::path& input);
 bool is_hlsl_source(const fs::path& input);
 
 // ============= Path Utilities =============

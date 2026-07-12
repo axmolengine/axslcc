@@ -32,10 +32,7 @@ void Compiler::finalize()
 
 void Compiler::compile(const Options& options)
 {
-    auto stage_opt = utils::stage_from_name(options.input);
-    if (!stage_opt)
-        throw std::runtime_error("Cannot determine shader stage: " + options.input.string());
-    auto stage = *stage_opt;
+    auto stage = options.stage;
 
     std::vector<OutputBlob> outputs;
     std::vector<tlx::byte_buffer> reflections;
@@ -43,12 +40,12 @@ void Compiler::compile(const Options& options)
     auto targets = options.targets;
 
 #ifdef _WIN32
-    if (options.dxbc)
+    if (!options.keep_source)
     {
         for (auto& t : targets)
         {
             if (t.lang == axslc::SHADER_LANG_HLSL)
-                t.binary = true;
+                t.bytecode = true;
         }
 
         for (size_t i = 0; i < targets.size(); ++i)
@@ -91,7 +88,7 @@ void Compiler::compile(const Options& options)
         }
 
 #ifdef _WIN32
-        if (target.binary)
+        if (target.bytecode)
         {
             auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
             std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()),
@@ -106,18 +103,16 @@ void Compiler::compile(const Options& options)
                                                      options.include_dirs, all_defines,
                                                      target.profile, options.input);
                 blob.data = std::move(fxcResult.dxbc);
-                blob.binary = true;
             }
             else
             {
                 auto dxcResult = dxc::compile_source(hlslSource, stage,
-                                                      options.include_dirs, all_defines,
-                                                      target.profile, options.input);
+                                                       options.include_dirs, all_defines,
+                                                       target.profile, options.input);
                 blob.data = std::move(dxcResult.dxil);
-                blob.binary = true;
             }
 
-            if (options.reflect)
+            if (options.archive)
                 reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
         }
         else
@@ -195,17 +190,16 @@ void Compiler::compile(const Options& options)
                 }
 
                 blob.data = spirv::spirv_to_bytes(combinedSpirv);
-                blob.binary = true;
                 blob.target = target;
 
-                if (options.reflect)
+                if (options.archive)
                     reflections.push_back(reflection::build_reflection(target, combinedSpirv, unit.stage, options.input));
             }
             else
             {
                 blob = cross::cross_compile(target, unit.spirv, options.input);
 
-                if (options.reflect)
+                if (options.archive)
                     reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
             }
         }
@@ -213,8 +207,9 @@ void Compiler::compile(const Options& options)
         outputs.push_back(std::move(blob));
     }
 
-    if (options.sc) {
-        sc_writer::write_sc(options, stage, outputs, reflections);
+    if (options.archive)
+    {
+        sc_writer::write_archive(options, stage, outputs, reflections);
     } else {
         for (const auto& output : outputs)
             utils::write_file(utils::output_path_for_target(options, output.target), output.data);

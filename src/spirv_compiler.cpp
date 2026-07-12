@@ -130,29 +130,20 @@ bool compile_to_spirv(const Options& options, const std::vector<std::string>& de
 
 CompileUnit compile_input(const Options& options, const Target& target)
 {
-    if (auto stage_opt = utils::stage_from_name(options.input); !stage_opt) {
-        throw std::runtime_error("cannot determine shader stage from filename '" +
-                                 options.input.string() + "' (expected _vs/_ps/_cs suffix)");
-    }
-
     std::string source_text = utils::read_text_file(options.input);
-    glslang::EShSource source = utils::is_hlsl_source(options.input) ? glslang::EShSourceHlsl : glslang::EShSourceGlsl;
-    std::vector<EShLanguage> candidates;
+    glslang::EShSource source = (options.input_lang == InputLang::HLSL) ? glslang::EShSourceHlsl : glslang::EShSourceGlsl;
 
-    if (auto stage = utils::stage_from_name(options.input)) {
-        switch (*stage) {
-        case ShaderStage::Vertex:
-            candidates.push_back(EShLangVertex);
-            break;
-        case ShaderStage::Fragment:
-            candidates.push_back(EShLangFragment);
-            break;
-        case ShaderStage::Compute:
-            candidates.push_back(EShLangCompute);
-            break;
-        }
-    } else {
-        candidates = {EShLangVertex, EShLangFragment, EShLangCompute};
+    std::vector<EShLanguage> candidates;
+    switch (options.stage) {
+    case ShaderStage::Vertex:
+        candidates.push_back(EShLangVertex);
+        break;
+    case ShaderStage::Fragment:
+        candidates.push_back(EShLangFragment);
+        break;
+    case ShaderStage::Compute:
+        candidates.push_back(EShLangCompute);
+        break;
     }
 
     auto all_defines = options.defines;

@@ -23,7 +23,19 @@ enum class ShaderStage
     Compute
 };
 
+enum class InputLang
+{
+    HLSL,
+    GLSL
+};
+
 // ============= Structs =============
+
+struct ShaderInfo
+{
+    ShaderStage stage = ShaderStage::Vertex;
+    InputLang lang = InputLang::HLSL;
+};
 
 struct Target
 {
@@ -31,7 +43,7 @@ struct Target
     int profile = 0;
     std::string spec;
     std::vector<std::string> defines;  // per-target builtin preprocessor defines
-    bool binary = false;               // true if --dxbc bytecode output
+    bool bytecode = false;             // true if -S not specified for D3D targets, false otherwise
 };
 
 struct Options
@@ -41,10 +53,12 @@ struct Options
     std::vector<std::string> defines;
     std::vector<fs::path> include_dirs;
     std::vector<Target> targets;
-    bool sc = false;
-    bool reflect = false;
-    bool migrate = false;
-    bool dxbc = false;      // --dxbc: compile SPIRV-Cross HLSL output to D3D bytecode (DXBC/DXIL, Windows only)
+    bool archive = false;              // -a
+    bool keep_source = false;          // -S   keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)
+    InputLang input_lang = InputLang::HLSL; // -x
+    bool xlang = false;                 // true if -x was explicitly specified
+    ShaderStage stage = ShaderStage::Vertex;  // detected from filename
+    std::string cvar;                  // --cvar
 };
 
 struct CompileUnit
@@ -58,7 +72,6 @@ struct OutputBlob
 {
     Target target;
     tlx::byte_buffer data;
-    bool binary = false;
 };
 
 struct ScTarget
@@ -69,7 +82,6 @@ struct ScTarget
     uint32_t stage = 0;
     tlx::byte_buffer code;
     tlx::byte_buffer refl;
-    bool binary = false;
 };
 
 struct VariableTypeMap
