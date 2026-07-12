@@ -245,6 +245,9 @@ Options parse_args(int argc, char** argv)
         std::string arg = argv[i];
         std::string value;
 
+        if (arg.empty())
+            continue;
+
         if (arg == "--help" || arg == "-h") {
             print_help();
             std::exit(0);
