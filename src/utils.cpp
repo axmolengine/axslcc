@@ -207,7 +207,7 @@ Options parse_args(int argc, char** argv)
                 throw std::runtime_error("unknown input language '" + value + "' (expected hlsl or glsl)");
             options.xlang = true;
         } else if (arg == "-S") {
-            options.keep_source = true;
+            options.keep_source_hint = true;
         } else if (arg == "--vulkan-samplers") {
             require_value(argc, argv, i, "--vulkan-samplers", value);
             auto mode = lower(value);
@@ -335,6 +335,27 @@ bool is_hlsl_source(const fs::path& input)
 {
     std::string ext = lower(input.extension().string());
     return ext == ".hlsl" || ext == ".fx";
+}
+
+std::pair<std::string, uint16_t> split_semantic(std::string_view semantic, uint32_t location)
+{
+    if (semantic.empty())
+    {
+        if (location < static_cast<uint32_t>(axslc::kVertexSemanticCount))
+            semantic = axslc::kVertexSemanticNames[location];
+        else
+            return {"TEXCOORD", static_cast<uint16_t>(location - 8)};
+    }
+
+    size_t digit_pos = semantic.size();
+    while (digit_pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[digit_pos - 1])))
+        --digit_pos;
+
+    uint16_t index = 0;
+    if (digit_pos < semantic.size())
+        index = static_cast<uint16_t>(std::stoul(std::string(semantic.substr(digit_pos))));
+
+    return {std::string(semantic.substr(0, digit_pos)), index};
 }
 
 fs::path output_path_for_target(const Options& options, const Target& target)

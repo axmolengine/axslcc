@@ -8,6 +8,7 @@
 #include "spirv_msl.hpp"
 
 #include <memory>
+#include <tuple>
 #include <unordered_map>
 
 namespace axslcc::cross
@@ -99,12 +100,82 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         hlsl_options.point_size_compat = true;
         hlsl_options.point_coord_compat = true;
         hlsl_options.flatten_matrix_vertex_input_semantics = true;
-        hlsl_options.user_semantic = true;
+        hlsl_options.user_semantic = false;
         hlsl->set_hlsl_options(hlsl_options);
 
         if (uint32_t builtin = hlsl->remap_num_workgroups_builtin()) {
             hlsl->set_decoration(builtin, spv::DecorationDescriptorSet, 0);
             hlsl->set_decoration(builtin, spv::DecorationBinding, 0);
+        }
+
+        auto resources = compiler->get_shader_resources();
+        const auto model = compiler->get_execution_model();
+        if (model == spv::ExecutionModelVertex) {
+            for (const auto& r : resources.stage_inputs) {
+                auto& type = compiler->get_type(r.type_id);
+                uint32_t base_loc = compiler->get_decoration(r.id, spv::DecorationLocation);
+                auto sem = compiler->get_decoration_string(r.id, spv::DecorationHlslSemanticGOOGLE);
+
+                if (type.columns > 1 && type.columns <= 4) {
+                    auto [name, idx] = utils::split_semantic(sem, base_loc);
+                    for (uint32_t col = 0; col < type.columns; ++col)
+                        hlsl->add_vertex_attribute_remap({
+                            base_loc + col,
+                            std::string(name) + std::to_string(idx + col)
+                        });
+                } else if (type.member_types.size() > 0) {
+                    bool all_same_float4 = true;
+                    bool any_extra_sem = false;
+                    std::string base_name;
+                    uint16_t base_idx = 0;
+
+                    for (uint32_t mi = 0; mi < type.member_types.size(); ++mi) {
+                        auto& mtype = compiler->get_type(type.member_types[mi]);
+                        if (mtype.vecsize != 4 || mtype.columns != 1) {
+                            all_same_float4 = false;
+                            break;
+                        }
+                        auto msem = compiler->get_member_decoration_string(
+                            type.self, mi, spv::DecorationHlslSemanticGOOGLE);
+                        if (mi > 0 && !msem.empty())
+                            any_extra_sem = true;
+                        if (mi == 0) {
+                            uint32_t mloc = compiler->get_member_decoration(
+                                type.self, 0, spv::DecorationLocation);
+                            std::tie(base_name, base_idx) = utils::split_semantic(msem, mloc);
+                        }
+                    }
+
+                    if (all_same_float4 && type.member_types.size() == 4 && !any_extra_sem) {
+                        for (uint32_t mi = 0; mi < type.member_types.size(); ++mi) {
+                            uint32_t loc = compiler->get_member_decoration(
+                                type.self, mi, spv::DecorationLocation);
+                            hlsl->add_vertex_attribute_remap({
+                                loc,
+                                base_name + std::to_string(base_idx + mi)
+                            });
+                        }
+                    } else {
+                        for (uint32_t mi = 0; mi < type.member_types.size(); ++mi) {
+                            uint32_t loc = compiler->get_member_decoration(
+                                type.self, mi, spv::DecorationLocation);
+                            auto msem = compiler->get_member_decoration_string(
+                                type.self, mi, spv::DecorationHlslSemanticGOOGLE);
+                            hlsl->add_vertex_attribute_remap({
+                                loc,
+                                std::string(utils::split_semantic(msem, loc).first) +
+                                    std::to_string(utils::split_semantic(msem, loc).second)
+                            });
+                        }
+                    }
+                } else {
+                    hlsl->add_vertex_attribute_remap({
+                        base_loc,
+                        std::string(utils::split_semantic(sem, base_loc).first) +
+                            std::to_string(utils::split_semantic(sem, base_loc).second)
+                    });
+                }
+            }
         }
 
     } else if (target.lang == axslc::SHADER_LANG_MSL) {

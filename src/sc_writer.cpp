@@ -55,7 +55,7 @@ void write_archive(const Options& options,
         ScTarget item;
         item.lang = sc_lang(outputs[i].target);
         item.profile = static_cast<uint32_t>(outputs[i].target.profile);
-        if (outputs[i].target.bytecode)
+        if (!outputs[i].target.isKeepSource(options.keep_source_hint))
             item.profile |= SC_BYTECODE_FLAG;
         item.stage = sc_stage(stage);
         item.code = outputs[i].data;

@@ -55,7 +55,27 @@ struct Target
     int profile = 0;
     std::string spec;
     std::vector<std::string> defines;  // per-target builtin preprocessor defines
-    bool bytecode = false;             // true if -S not specified for D3D targets, false otherwise
+
+    // Decide whether this target's code is emitted as source text (HLSL/GLSL/MSL) rather
+    // than as a binary blob (D3D bytecode or SPIR-V). The result depends on the shader
+    // language and the -S hint together:
+    //   - HLSL : compiled to DXBC/DXIL bytecode via FXC/DXC unless -S is given; on
+    //            non-Windows hosts FXC/DXC are unavailable, so source is always kept.
+    //   - SPIR-V : always emitted as a SPIR-V binary, never kept as source.
+    //   - MSL/GLSL/ESSL : always kept as source text.
+    // keep_source_hint mirrors the -S command line flag (Options::keep_source_hint).
+    bool isKeepSource(bool keep_source_hint) const
+    {
+        switch (lang)
+        {
+        case axslc::SHADER_LANG_HLSL:
+            return keep_source_hint;
+        case axslc::SHADER_LANG_SPIRV:
+            return false;  // always a SPIR-V binary
+        default:  // MSL, GLSL, ESSL
+            return true;
+        }
+    }
 };
 
 struct Options
@@ -66,7 +86,7 @@ struct Options
     std::vector<fs::path> include_dirs;
     std::vector<Target> targets;
     bool archive = false;              // -a
-    bool keep_source = false;          // -S   keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)
+    bool keep_source_hint = false;     // -S   keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)
     int opt_level = 0;                 // -O0 (debug) through -O3
     InputLang input_lang = InputLang::HLSL; // -x
     HlslFrontend hlsl_frontend = HlslFrontend::DXC; // --hlsl-frontend

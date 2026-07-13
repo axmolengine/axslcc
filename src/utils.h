@@ -32,6 +32,12 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data);
 ShaderInfo classify(const fs::path& input);
 bool is_hlsl_source(const fs::path& input);
 
+// ============= Vertex Attribute Semantics =============
+
+// Split a full semantic string ("TEXCOORD0") into {base name, index} = {"TEXCOORD", 0}
+// Falls back to axslc::kVertexSemanticNames[location] when semantic is empty
+std::pair<std::string, uint16_t> split_semantic(std::string_view semantic, uint32_t location);
+
 // ============= Path Utilities =============
 
 fs::path output_path_for_target(const Options& options, const Target& target);
