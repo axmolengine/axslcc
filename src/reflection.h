@@ -13,6 +13,7 @@ namespace axslcc::reflection
 // ============= Reflection Data Generation =============
 
 tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
-    ShaderStage stage, const fs::path& input);
+    ShaderStage stage, const fs::path& input,
+    const std::vector<UniformBlockNameOverride>& uniform_block_names = {});
 
 } // namespace axslcc::reflection

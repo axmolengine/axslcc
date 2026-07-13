@@ -189,6 +189,9 @@ DxcResult compile_impl(const std::string& hlsl,
     {
         push(L"-spirv");
         push(L"-fspv-target-env=vulkan1.1");
+        // Keep HLSL semantics in the in-memory intermediate. Runtime Vulkan
+        // modules strip this metadata after reflection/cross-compilation.
+        push(L"-fspv-reflect");
         if (separateSamplerBindings)
         {
             // HLSL register classes share Vulkan's binding namespace. Keep s#

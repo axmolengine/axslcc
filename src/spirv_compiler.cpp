@@ -7,6 +7,7 @@
 #include "glslang/Public/ResourceLimits.h"
 #include "glslang/Public/ShaderLang.h"
 #include "spirv-tools/optimizer.hpp"
+#include "spirv-tools/libspirv.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -145,6 +146,33 @@ bool compile_to_spirv(const Options& options, const std::vector<std::string>& de
 }
 
 } // namespace
+
+std::vector<uint32_t> make_vulkan_runtime_spirv(const std::vector<uint32_t>& spirv)
+{
+    spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1);
+    optimizer.RegisterPass(spvtools::CreateStripNonSemanticInfoPass());
+
+    std::string diagnostics;
+    auto consume_message = [&diagnostics](spv_message_level_t, const char*, const spv_position_t& position,
+                                          const char* message) {
+        diagnostics += std::to_string(position.index);
+        diagnostics += ": ";
+        diagnostics += message ? message : "unknown SPIR-V error";
+        diagnostics += '\n';
+    };
+    optimizer.SetMessageConsumer(consume_message);
+
+    std::vector<uint32_t> runtime_spirv;
+    if (!optimizer.Run(spirv.data(), spirv.size(), &runtime_spirv))
+        throw std::runtime_error("failed to strip non-runtime SPIR-V metadata\n" + diagnostics);
+
+    spvtools::SpirvTools validator(SPV_ENV_VULKAN_1_1);
+    validator.SetMessageConsumer(consume_message);
+    if (!validator.Validate(runtime_spirv))
+        throw std::runtime_error("Vulkan runtime SPIR-V validation failed\n" + diagnostics);
+
+    return runtime_spirv;
+}
 
 CompileUnit compile_input(const Options& options, const Target& target)
 {

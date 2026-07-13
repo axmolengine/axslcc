@@ -25,17 +25,11 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& tar
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
 }
 
-std::string make_semantic_string(const std::string& name, uint16_t index)
-{
-    if (name == "TEXCOORD" || name == "COLOR")
-        return name + std::to_string(index);
-    return name;
-}
-
 } // namespace
 
 OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spirv,
-                         const fs::path& input)
+                         const fs::path& input,
+                         std::vector<UniformBlockNameOverride>* uniform_block_names)
 {
     if (target.lang == axslc::SHADER_LANG_SPIRV)
         return OutputBlob{target, spirv::spirv_to_bytes(spirv)};
@@ -61,12 +55,34 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                 compiler->set_name(combined.combined_id, it->second);
         }
 
-        // Strip "input." / "output." prefix from varying names for GLES linker compatibility
-        auto post_resources = compiler->get_shader_resources();
-        for (const auto& r : post_resources.stage_inputs)
-            compiler->set_name(r.id, utils::clean_input_name(r.name));
-        for (const auto& r : post_resources.stage_outputs)
-            compiler->set_name(r.id, utils::clean_input_name(r.name));
+        // GLSL 3.3/ESSL 3.0 link stage interfaces by name. Use DXC's exact
+        // UserSemantic decoration as that name; no generated naming convention
+        // becomes part of the shader ABI. Keep vertex attributes on their raw
+        // compiler-local names so COLOR0 input/output cannot collide.
+        if (utils::is_hlsl_source(input))
+        {
+            auto post_resources = compiler->get_shader_resources();
+            const auto model = compiler->get_execution_model();
+            const auto apply_semantic_name = [&](const spirv_cross::Resource& resource) {
+                auto semantic = compiler->get_decoration_string(
+                    resource.id, spv::DecorationHlslSemanticGOOGLE);
+                if (!semantic.empty())
+                    compiler->set_name(resource.id, semantic);
+            };
+
+            if (model == spv::ExecutionModelVertex)
+            {
+                for (const auto& r : post_resources.stage_inputs)
+                    compiler->unset_decoration(r.id, spv::DecorationHlslSemanticGOOGLE);
+                for (const auto& r : post_resources.stage_outputs)
+                    apply_semantic_name(r);
+            }
+            else if (model == spv::ExecutionModelFragment)
+            {
+                for (const auto& r : post_resources.stage_inputs)
+                    apply_semantic_name(r);
+            }
+        }
     }
 
     if (target.lang == axslc::SHADER_LANG_ESSL) {
@@ -91,44 +107,6 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
             hlsl->set_decoration(builtin, spv::DecorationBinding, 0);
         }
 
-        // Map vertex inputs to correct D3D semantics from original HLSL source
-        if (!input.empty() && utils::is_hlsl_source(input))
-        {
-            auto semantics = utils::parse_hlsl_semantics(input);
-            if (!semantics.empty())
-            {
-                auto resources = compiler->get_shader_resources();
-
-                auto remap_one = [&](const std::string& name, uint32_t loc) {
-                    auto it = semantics.find(name);
-                    if (it != semantics.end())
-                    {
-                        std::string fullSem = make_semantic_string(it->second.first, it->second.second);
-                        hlsl->add_vertex_attribute_remap({loc, fullSem});
-                    }
-                };
-
-                for (const auto& res : resources.stage_inputs)
-                {
-                    auto& inputType = compiler->get_type(res.type_id);
-                    uint32_t memberCount = static_cast<uint32_t>(inputType.member_types.size());
-
-                    if (memberCount > 0)
-                    {
-                        for (uint32_t mi = 0; mi < memberCount; ++mi)
-                        {
-                            std::string rawName = compiler->get_member_name(inputType.self, mi);
-                            remap_one(utils::clean_input_name(rawName), compiler->get_member_decoration(inputType.self, mi, spv::DecorationLocation));
-                        }
-                    }
-                    else
-                    {
-                        std::string rawName = res.name.empty() ? compiler->get_fallback_name(res.id) : res.name;
-                        remap_one(utils::clean_input_name(rawName), compiler->get_decoration(res.id, spv::DecorationLocation));
-                    }
-                }
-            }
-        }
     } else if (target.lang == axslc::SHADER_LANG_MSL) {
         auto* msl = static_cast<spirv_cross::CompilerMSL*>(compiler.get());
         auto msl_options = msl->get_msl_options();
@@ -139,6 +117,22 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
 
     compiler->set_common_options(options);
     std::string code = compiler->compile();
+
+    if (uniform_block_names &&
+        (target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL))
+    {
+        uniform_block_names->clear();
+        for (const auto& resource : compiler->get_shader_resources().uniform_buffers)
+        {
+            UniformBlockNameOverride item;
+            item.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+            item.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+                ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
+            item.name = compiler->get_remapped_declared_block_name(resource.id);
+            uniform_block_names->push_back(std::move(item));
+        }
+    }
+
     tlx::byte_buffer bytes(code.begin(), code.end());
     bytes.push_back(0);
     return OutputBlob{target, std::move(bytes)};

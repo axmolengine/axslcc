@@ -89,6 +89,13 @@ struct OutputBlob
     tlx::byte_buffer data;
 };
 
+struct UniformBlockNameOverride
+{
+    int32_t binding = -1;
+    uint16_t descriptor_set = 0;
+    std::string name;
+};
+
 struct ScTarget
 {
     uint32_t lang = 0;

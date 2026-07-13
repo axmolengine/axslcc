@@ -130,9 +130,10 @@ void Compiler::compile(const Options& options)
             {
                 if (options.vulkan_sampler_mode == VulkanSamplerMode::Separate)
                 {
-                    blob.data = spirv::spirv_to_bytes(unit.spirv);
                     if (options.archive)
                         reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
+                    auto runtimeSpirv = spirv::make_vulkan_runtime_spirv(unit.spirv);
+                    blob.data = spirv::spirv_to_bytes(runtimeSpirv);
                     outputs.push_back(std::move(blob));
                     continue;
                 }
@@ -206,18 +207,21 @@ void Compiler::compile(const Options& options)
                     throw std::runtime_error("SPIR-V round-trip compilation failed");
                 }
 
-                blob.data = spirv::spirv_to_bytes(combinedSpirv);
-                blob.target = target;
-
                 if (options.archive)
                     reflections.push_back(reflection::build_reflection(target, combinedSpirv, unit.stage, options.input));
+
+                auto runtimeSpirv = spirv::make_vulkan_runtime_spirv(combinedSpirv);
+                blob.data = spirv::spirv_to_bytes(runtimeSpirv);
+                blob.target = target;
             }
             else
             {
-                blob = cross::cross_compile(target, unit.spirv, options.input);
+                std::vector<UniformBlockNameOverride> uniformBlockNames;
+                blob = cross::cross_compile(target, unit.spirv, options.input, &uniformBlockNames);
 
                 if (options.archive)
-                    reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
+                    reflections.push_back(reflection::build_reflection(
+                        target, unit.spirv, unit.stage, options.input, uniformBlockNames));
             }
         }
 

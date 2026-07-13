@@ -294,10 +294,13 @@ if(EXISTS "${_dxc_license}")
             DESTINATION . COMPONENT axslcc)
 endif()
 
-# glslang / spirv-cross / yasio licenses
+# glslang / SPIRV-Tools / spirv-cross / yasio licenses
 install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/glslang/LICENSE.txt"
         DESTINATION . COMPONENT axslcc
         RENAME "LICENSE-glslang.txt")
+install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/glslang/External/spirv-tools/LICENSE"
+        DESTINATION . COMPONENT axslcc
+        RENAME "LICENSE-spirv-tools.txt")
 install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/spirv-cross/LICENSE"
         DESTINATION . COMPONENT axslcc
         RENAME "LICENSE-spirv-cross.txt")

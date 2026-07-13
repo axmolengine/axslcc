@@ -8,8 +8,8 @@
 #include "yasio/obstream.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
-#include <map>
 #include <memory>
 
 namespace axslcc::reflection
@@ -107,10 +107,32 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
 }
 
+std::pair<std::string, uint16_t> split_semantic(std::string semantic, uint32_t location)
+{
+    if (semantic.empty())
+    {
+        return {
+            location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB",
+            location < std::size(kSemanticIndices) ? kSemanticIndices[location] : uint16_t{0}
+        };
+    }
+
+    size_t digit_pos = semantic.size();
+    while (digit_pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[digit_pos - 1])))
+        --digit_pos;
+
+    uint16_t index = 0;
+    if (digit_pos < semantic.size())
+        index = static_cast<uint16_t>(std::stoul(semantic.substr(digit_pos)));
+    semantic.resize(digit_pos);
+    return {std::move(semantic), index};
+}
+
 } // namespace
 
 tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
-    ShaderStage stage, const fs::path& input)
+    ShaderStage stage, const fs::path& input,
+    const std::vector<UniformBlockNameOverride>& uniform_block_names)
 {
     auto compiler = target.lang == axslc::SHADER_LANG_SPIRV
         ? make_compiler(Target{axslc::SHADER_LANG_GLSL, 450, "glsl-450"}, spirv)
@@ -126,17 +148,6 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     write_struct(out, header);
 
     const bool is_hlsl = utils::is_hlsl_source(input);
-    auto hlslSemantics = is_hlsl ? utils::parse_hlsl_semantics(input) : std::map<std::string, std::pair<std::string, uint16_t>>{};
-
-    auto get_semantic = [&](const std::string& name) -> std::pair<std::string, uint16_t> {
-        if (is_hlsl)
-        {
-            auto it = hlslSemantics.find(name);
-            if (it != hlslSemantics.end())
-                return it->second;
-        }
-        return {};
-    };
 
     auto write_input = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.type_id);
@@ -159,64 +170,26 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             for (uint32_t mi = 0; mi < member_count; ++mi)
             {
                 std::string raw_name = compiler->get_member_name(type.self, mi);
-                std::string clean_name = is_hlsl ? utils::clean_input_name(raw_name) : raw_name;
+                std::string hlsl_semantic = compiler->get_member_decoration_string(
+                    type.self, mi, spv::DecorationHlslSemanticGOOGLE);
                 auto& member_type = compiler->get_type(type.member_types[mi]);
                 uint32_t location = compiler->get_member_decoration(type.self, mi, spv::DecorationLocation);
-
-                uint16_t sem_index = 0;
-                std::string semantic;
-                if (is_hlsl)
-                {
-                    auto hs = get_semantic(clean_name);
-                    if (!hs.first.empty())
-                    {
-                        semantic = hs.first;
-                        sem_index = hs.second;
-                    }
-                    else
-                    {
-                        semantic = "TEXCOORD";
-                        sem_index = static_cast<uint16_t>(location);
-                    }
-                }
-                else
-                {
-                    semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-                    sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
-                }
-
-                write_one(clean_name, mi, member_type, location, sem_index, semantic);
+                const auto full_semantic = is_hlsl ? hlsl_semantic : std::string{};
+                auto [semantic, sem_index] = split_semantic(full_semantic, location);
+                const auto& input_name = full_semantic.empty() ? raw_name : full_semantic;
+                write_one(input_name, mi, member_type, location, sem_index, semantic);
             }
         }
         else
         {
             std::string raw_name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
-            std::string clean_name = is_hlsl ? utils::clean_input_name(raw_name) : raw_name;
+            std::string hlsl_semantic = compiler->get_decoration_string(
+                resource.id, spv::DecorationHlslSemanticGOOGLE);
             uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
-
-            uint16_t sem_index = 0;
-            std::string semantic;
-            if (is_hlsl)
-            {
-                auto hs = get_semantic(clean_name);
-                if (!hs.first.empty())
-                {
-                    semantic = hs.first;
-                    sem_index = hs.second;
-                }
-                else
-                {
-                    semantic = "TEXCOORD";
-                    sem_index = static_cast<uint16_t>(location);
-                }
-            }
-            else
-            {
-                semantic = location < std::size(kSemanticNames) ? std::string(kSemanticNames[location]) : "ATTRIB";
-                sem_index = location < std::size(kSemanticIndices) ? kSemanticIndices[location] : 0;
-            }
-
-            write_one(clean_name, 0, type, location, sem_index, semantic);
+            const auto full_semantic = is_hlsl ? hlsl_semantic : std::string{};
+            auto [semantic, sem_index] = split_semantic(full_semantic, location);
+            const auto& input_name = full_semantic.empty() ? raw_name : full_semantic;
+            write_one(input_name, 0, type, location, sem_index, semantic);
         }
     };
 
@@ -228,8 +201,19 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     auto write_ubo = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.base_type_id);
         axslc::sc_refl_uniformbuffer ubo{};
-        copy_name(ubo.name, sizeof(ubo.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
         ubo.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        const auto descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
+        std::string block_name = resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name;
+        for (const auto& item : uniform_block_names)
+        {
+            if (item.binding == ubo.binding && item.descriptor_set == descriptor_set)
+            {
+                block_name = item.name;
+                break;
+            }
+        }
+        copy_name(ubo.name, sizeof(ubo.name), block_name);
         ubo.size_bytes = static_cast<uint32_t>(compiler->get_declared_struct_size(type));
         ubo.array_size = array_size(compiler->get_type(resource.type_id));
         ubo.num_members = static_cast<uint16_t>(std::min<size_t>(type.member_types.size(), 0xffff));
