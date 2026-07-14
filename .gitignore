@@ -33,3 +33,4 @@ _x
 
 *.patch
 *.diff
+.DS_Store
