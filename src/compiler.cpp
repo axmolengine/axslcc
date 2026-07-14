@@ -14,7 +14,7 @@
 
 #include "spirv_glsl.hpp"
 
-#include <cstdio>
+#include <fmt/format.h>
 #include <iostream>
 
 namespace axslcc
@@ -185,9 +185,7 @@ void Compiler::compile(const Options& options)
                         size_t uniformPos = glslSource.rfind("uniform ", namePos);
                         if (uniformPos != std::string::npos && (namePos - uniformPos) < 80)
                         {
-                            char layoutStr[64];
-                            snprintf(layoutStr, sizeof(layoutStr), "layout(set = %u, binding = %u) ", descSet, binding);
-                            glslSource.insert(uniformPos, layoutStr);
+                            glslSource.insert(uniformPos, fmt::format("layout(set = {}, binding = {}) ", descSet, binding));
                         }
                     }
                 }

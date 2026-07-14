@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fmt/format.h>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -137,14 +138,14 @@ Target parse_target(std::string_view text)
 
     // Legacy format: lang-profile (e.g. hlsl-50, spirv-100, msl-20000)
     if (dash == std::string_view::npos)
-        throw std::runtime_error("unsupported target '" + std::string(text) + "'");
+        throw std::runtime_error(fmt::format("unsupported target '{}'", text));
 
     std::string lang = lower(std::string(text.substr(0, dash)));
     int profile = std::stoi(std::string(text.substr(dash + 1)));
 
     Target target;
     target.profile = profile;
-    target.spec = lang + "-" + std::to_string(profile);
+    target.spec = fmt::format("{}-{}", lang, profile);
 
     if (lang == "hlsl" && (profile == 50 || profile == 51)) {
         target.lang = axslc::SHADER_LANG_HLSL;
@@ -157,7 +158,7 @@ Target parse_target(std::string_view text)
     } else if (lang == "spirv" && profile == 100) {
         target.lang = axslc::SHADER_LANG_SPIRV;
     } else {
-        throw std::runtime_error("unsupported target '" + std::string(text) + "'");
+        throw std::runtime_error(fmt::format("unsupported target '{}'", text));
     }
 
     return target;
@@ -169,7 +170,7 @@ Options parse_args(int argc, char** argv)
 
     auto require_value = [](int argc, char** argv, int& i, std::string_view option, std::string& out) {
         if (i + 1 >= argc)
-            throw std::runtime_error(std::string(option) + " requires a value");
+            throw std::runtime_error(fmt::format("{} requires a value", option));
         out = argv[++i];
     };
 
@@ -204,7 +205,7 @@ Options parse_args(int argc, char** argv)
             else if (lang == "glsl")
                 options.input_lang = InputLang::GLSL;
             else
-                throw std::runtime_error("unknown input language '" + value + "' (expected hlsl or glsl)");
+                throw std::runtime_error(fmt::format("unknown input language '{}' (expected hlsl or glsl)", value));
             options.xlang = true;
         } else if (arg == "-S") {
             options.keep_source_hint = true;
@@ -216,7 +217,7 @@ Options parse_args(int argc, char** argv)
             else if (mode == "combined")
                 options.vulkan_sampler_mode = VulkanSamplerMode::Combined;
             else
-                throw std::runtime_error("unknown Vulkan sampler mode '" + value + "' (expected separate or combined)");
+                throw std::runtime_error(fmt::format("unknown Vulkan sampler mode '{}' (expected separate or combined)", value));
         } else if (arg == "--hlsl-frontend") {
             require_value(argc, argv, i, "--hlsl-frontend", value);
             auto frontend = lower(value);
@@ -225,7 +226,7 @@ Options parse_args(int argc, char** argv)
             else if (frontend == "glslang")
                 options.hlsl_frontend = HlslFrontend::Glslang;
             else
-                throw std::runtime_error("unknown HLSL frontend '" + value + "' (expected dxc or glslang)");
+                throw std::runtime_error(fmt::format("unknown HLSL frontend '{}' (expected dxc or glslang)", value));
         } else if (arg == "-O0") {
             options.opt_level = 0;
         } else if (arg == "-O1") {
@@ -249,10 +250,10 @@ Options parse_args(int argc, char** argv)
             options.cvar = value;
         } else if (!arg.empty() && arg[0] != '-') {
             if (!options.input.empty())
-                throw std::runtime_error("multiple input files specified: '" + arg + "'");
+                throw std::runtime_error(fmt::format("multiple input files specified: '{}'", arg));
             options.input = arg;
         } else {
-            throw std::runtime_error("unknown option '" + arg + "'");
+            throw std::runtime_error(fmt::format("unknown option '{}'", arg));
         }
     }
 
@@ -261,7 +262,7 @@ Options parse_args(int argc, char** argv)
     if (options.targets.empty())
         throw std::runtime_error("at least one target (-t) is required");
     if (!fs::exists(options.input))
-        throw std::runtime_error("input file does not exist: " + options.input.string());
+        throw std::runtime_error(fmt::format("input file does not exist: {}", options.input.string()));
 
     auto info = classify(options.input);
     options.stage = info.stage;
@@ -280,7 +281,7 @@ std::string read_text_file(const fs::path& path)
 {
     std::ifstream in(path, std::ios::binary);
     if (!in)
-        throw std::runtime_error("failed to open input: " + path.string());
+        throw std::runtime_error(fmt::format("failed to open input: {}", path.string()));
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
@@ -293,7 +294,7 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data)
 
     std::ofstream out(path, std::ios::binary);
     if (!out)
-        throw std::runtime_error("failed to open output: " + path.string());
+        throw std::runtime_error(fmt::format("failed to open output: {}", path.string()));
     out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
 }
 
@@ -318,8 +319,7 @@ ShaderInfo classify(const fs::path& input)
     else if (stem.ends_with("_cs"))
         info.stage = ShaderStage::Compute;
     else
-        throw std::runtime_error("cannot determine shader stage from filename '" +
-                                 input.string() + "' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)");
+        throw std::runtime_error(fmt::format("cannot determine shader stage from filename '{}' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)", input.string()));
 
     // Detect language
     if (ext == ".hlsl" || ext == ".fx" || ext == ".hlsli")
@@ -367,13 +367,13 @@ fs::path output_path_for_target(const Options& options, const Target& target)
     std::string ext;
     switch (target.lang) {
     case axslc::SHADER_LANG_HLSL:
-        ext = ".hlsl" + std::to_string(target.profile);
+        ext = fmt::format(".hlsl{}", target.profile);
         break;
     case axslc::SHADER_LANG_ESSL:
-        ext = ".essl" + std::to_string(target.profile);
+        ext = fmt::format(".essl{}", target.profile);
         break;
     case axslc::SHADER_LANG_GLSL:
-        ext = ".glsl" + std::to_string(target.profile);
+        ext = fmt::format(".glsl{}", target.profile);
         break;
     case axslc::SHADER_LANG_MSL:
         ext = ".msl";

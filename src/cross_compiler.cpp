@@ -7,6 +7,7 @@
 #include "spirv_hlsl.hpp"
 #include "spirv_msl.hpp"
 
+#include <fmt/format.h>
 #include <memory>
 #include <tuple>
 #include <unordered_map>
@@ -121,7 +122,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                     for (uint32_t col = 0; col < type.columns; ++col)
                         hlsl->add_vertex_attribute_remap({
                             base_loc + col,
-                            std::string(name) + std::to_string(idx + col)
+                            fmt::format("{}{}", name, idx + col)
                         });
                 } else if (type.member_types.size() > 0) {
                     bool all_same_float4 = true;
@@ -152,7 +153,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                                 type.self, mi, spv::DecorationLocation);
                             hlsl->add_vertex_attribute_remap({
                                 loc,
-                                base_name + std::to_string(base_idx + mi)
+                                fmt::format("{}{}", base_name, base_idx + mi)
                             });
                         }
                     } else {
@@ -163,16 +164,16 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                                 type.self, mi, spv::DecorationHlslSemanticGOOGLE);
                             hlsl->add_vertex_attribute_remap({
                                 loc,
-                                std::string(utils::split_semantic(msem, loc).first) +
-                                    std::to_string(utils::split_semantic(msem, loc).second)
+                                fmt::format("{}{}", utils::split_semantic(msem, loc).first,
+                                    utils::split_semantic(msem, loc).second)
                             });
                         }
                     }
                 } else {
                     hlsl->add_vertex_attribute_remap({
                         base_loc,
-                        std::string(utils::split_semantic(sem, base_loc).first) +
-                            std::to_string(utils::split_semantic(sem, base_loc).second)
+                        fmt::format("{}{}", utils::split_semantic(sem, base_loc).first,
+                            utils::split_semantic(sem, base_loc).second)
                     });
                 }
             }

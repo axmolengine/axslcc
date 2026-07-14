@@ -2,6 +2,8 @@
 #include "dxc_compiler.h"
 #include "utils.h"
 
+#include "axslc-spec.h"
+
 #include "SPIRV/GlslangToSpv.h"
 #include "StandAlone/DirStackFileIncluder.h"
 #include "glslang/Public/ResourceLimits.h"
@@ -11,6 +13,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fmt/format.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,26 +24,15 @@ namespace axslcc::spirv
 namespace
 {
 
-constexpr std::string_view kAttribNames[] = {
-    "POSITION", "NORMAL", "TEXCOORD0", "TEXCOORD1", "TEXCOORD2", "TEXCOORD3",
-    "TEXCOORD4", "TEXCOORD5", "TEXCOORD6", "TEXCOORD7", "COLOR0", "COLOR1",
-    "COLOR2", "COLOR3", "TANGENT", "BINORMAL", "BLENDINDICES", "BLENDWEIGHT",
-};
-
 std::string build_preamble(const std::vector<std::string>& defines, glslang::EShSource source)
 {
     std::string preamble;
     if (source != glslang::EShSourceHlsl) {
         preamble += "#extension GL_GOOGLE_include_directive : require\n";
-        for (size_t i = 0; i < std::size(kAttribNames); ++i) {
-            preamble += "#define ";
-            preamble += kAttribNames[i];
-            preamble += " ";
-            preamble += std::to_string(i);
-            preamble += "\n";
-        }
+        for (size_t i = 0; i < std::size(axslc::kVertexSemanticNames); ++i)
+            preamble += fmt::format("#define {} {}\n", axslc::kVertexSemanticNames[i], i);
         for (int i = 0; i < 8; ++i)
-            preamble += "#define SV_Target" + std::to_string(i) + " " + std::to_string(i) + "\n";
+            preamble += fmt::format("#define SV_Target{} {}\n", i, i);
     }
 
     for (const auto& define : defines) {
@@ -155,21 +147,18 @@ std::vector<uint32_t> make_vulkan_runtime_spirv(const std::vector<uint32_t>& spi
     std::string diagnostics;
     auto consume_message = [&diagnostics](spv_message_level_t, const char*, const spv_position_t& position,
                                           const char* message) {
-        diagnostics += std::to_string(position.index);
-        diagnostics += ": ";
-        diagnostics += message ? message : "unknown SPIR-V error";
-        diagnostics += '\n';
+        diagnostics += fmt::format("{}: {}\n", position.index, message ? message : "unknown SPIR-V error");
     };
     optimizer.SetMessageConsumer(consume_message);
 
     std::vector<uint32_t> runtime_spirv;
     if (!optimizer.Run(spirv.data(), spirv.size(), &runtime_spirv))
-        throw std::runtime_error("failed to strip non-runtime SPIR-V metadata\n" + diagnostics);
+        throw std::runtime_error(fmt::format("failed to strip non-runtime SPIR-V metadata\n{}", diagnostics));
 
     spvtools::SpirvTools validator(SPV_ENV_VULKAN_1_1);
     validator.SetMessageConsumer(consume_message);
     if (!validator.Validate(runtime_spirv))
-        throw std::runtime_error("Vulkan runtime SPIR-V validation failed\n" + diagnostics);
+        throw std::runtime_error(fmt::format("Vulkan runtime SPIR-V validation failed\n{}", diagnostics));
 
     return runtime_spirv;
 }
@@ -247,14 +236,11 @@ CompileUnit compile_input(const Options& options, const Target& target)
             return unit;
         }
 
-        combined_log += "Stage ";
-        combined_log += stage == EShLangVertex ? "vertex" : stage == EShLangFragment ? "fragment" : "compute";
-        combined_log += " failed:\n";
-        combined_log += log;
-        combined_log += "\n";
+        combined_log += fmt::format("Stage {} failed:\n{}\n",
+            stage == EShLangVertex ? "vertex" : stage == EShLangFragment ? "fragment" : "compute", log);
     }
 
-    throw std::runtime_error("compilation failed\n" + combined_log);
+    throw std::runtime_error(fmt::format("compilation failed\n{}", combined_log));
 }
 
 bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <fmt/format.h>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -68,7 +69,7 @@ template <class T>
 void create_instance(REFCLSID clsid, ComPtr<T>& out, const char* what)
 {
     if (FAILED(DxcCreateInstance(clsid, __uuidof(T), reinterpret_cast<void**>(out.GetAddressOf()))))
-        throw std::runtime_error(std::string("failed to create DXC ") + what);
+        throw std::runtime_error(fmt::format("failed to create DXC {}", what));
 }
 
 std::wstring widen_utf8(std::string_view value)
