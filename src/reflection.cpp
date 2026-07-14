@@ -1,4 +1,5 @@
 #include "reflection.h"
+#include "axslc-spec.h"
 
 #include "spirv_cross.hpp"
 #include "spirv_glsl.hpp"
@@ -11,6 +12,12 @@
 #include <cctype>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include <fmt/format.h>
 
 namespace axslcc::reflection
 {
@@ -18,22 +25,12 @@ namespace axslcc::reflection
 namespace
 {
 
-constexpr std::string_view kPresetSamplers[] = {
-    "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
-    "PointClamp", "PointWrap", "PointMirror", "PointBorder",
-    "LinearMipClamp", "LinearMipWrap", "LinearMipMirror", "LinearMipBorder",
-    "AnisoClamp", "AnisoWrap", "AnisoMirror", "AnisoBorder",
-    "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
-    "LinearNoMipClamp", "PointNoMipClamp",
-};
-
-int16_t preset_sampler_index(std::string_view name)
+struct SamplerAbiInfo
 {
-    for (size_t i = 0; i < std::size(kPresetSamplers); ++i)
-        if (name == kPresetSamplers[i])
-            return static_cast<int16_t>(i);
-    return -1;
-}
+    std::string name;
+    int32_t reflected_binding{-1};
+    uint16_t descriptor_set{0};
+};
 
 constexpr VariableTypeMap kVariableTypeMap[] = {
     {spirv_cross::SPIRType::Float, 4, 1, axslc::SC_TYPE_FLOAT4},
@@ -84,7 +81,7 @@ void write_struct(yasio::fast_obstream& out, const T& value)
 void copy_name(char* dst, size_t size, std::string_view name)
 {
     std::memset(dst, 0, size);
-    const auto copy_size = std::min(name.size(), size - 1);
+    const auto copy_size = (std::min)(name.size(), size - 1);
     std::memcpy(dst, name.data(), copy_size);
 }
 
@@ -97,6 +94,108 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
 }
 
+uint32_t align_up(uint32_t value, uint32_t alignment)
+{
+    if (alignment <= 1)
+        return value;
+
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+uint32_t get_msl_scalar_alignment(const spirv_cross::SPIRType& type)
+{
+    switch (type.basetype)
+    {
+    case spirv_cross::SPIRType::Boolean:
+    case spirv_cross::SPIRType::SByte:
+    case spirv_cross::SPIRType::UByte:
+        return 1;
+
+    case spirv_cross::SPIRType::Short:
+    case spirv_cross::SPIRType::UShort:
+    case spirv_cross::SPIRType::Half:
+        return 2;
+
+    case spirv_cross::SPIRType::Int:
+    case spirv_cross::SPIRType::UInt:
+    case spirv_cross::SPIRType::Float:
+        return 4;
+
+    case spirv_cross::SPIRType::Int64:
+    case spirv_cross::SPIRType::UInt64:
+    case spirv_cross::SPIRType::Double:
+        return 8;
+
+    default:
+        return (std::max)(type.width / 8u, 1u);
+    }
+}
+
+uint32_t get_msl_type_alignment(const spirv_cross::CompilerGLSL& compiler,
+                                const spirv_cross::SPIRType& type)
+{
+    if (type.basetype == spirv_cross::SPIRType::Struct)
+    {
+        uint32_t alignment = 1;
+
+        for (const auto member_type_id : type.member_types)
+        {
+            alignment = (std::max)(
+                alignment,
+                get_msl_type_alignment(compiler, compiler.get_type(member_type_id)));
+        }
+
+        return alignment;
+    }
+
+    const uint32_t scalar_alignment = get_msl_scalar_alignment(type);
+
+    // MSL matrices are arrays of column vectors, so their natural alignment
+    // is the alignment of one column vector.
+    switch (type.vecsize)
+    {
+    case 1:
+        return scalar_alignment;
+
+    case 2:
+        return scalar_alignment * 2;
+
+    case 3:
+    case 4:
+        return scalar_alignment * 4;
+
+    default:
+        return scalar_alignment;
+    }
+}
+
+uint32_t get_msl_struct_size(const spirv_cross::CompilerGLSL& compiler,
+                             const spirv_cross::SPIRType& type)
+{
+    if (type.member_types.empty())
+        return 0;
+
+    uint32_t struct_alignment = 1;
+
+    for (const auto member_type_id : type.member_types)
+    {
+        struct_alignment = (std::max)(
+            struct_alignment,
+            get_msl_type_alignment(compiler, compiler.get_type(member_type_id)));
+    }
+
+    const auto last_index =
+        static_cast<uint32_t>(type.member_types.size() - 1);
+
+    const uint32_t last_offset =
+        compiler.type_struct_member_offset(type, last_index);
+
+    const uint32_t last_size = static_cast<uint32_t>(
+        compiler.get_declared_struct_member_size(type, last_index));
+
+    return align_up(last_offset + last_size, struct_alignment);
+}
+
 } // namespace
 
 tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32_t>& spirv,
@@ -107,16 +206,68 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         ? make_compiler(Target{axslc::SHADER_LANG_GLSL, 450, "glsl-450"}, spirv)
         : make_compiler(target, spirv);
 
+    const bool is_glsl_target = target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL;
+
+    auto pre_resources = compiler->get_shader_resources();
+    const bool is_hlsl = utils::is_hlsl_source(input);
+    std::unordered_map<uint32_t, SamplerAbiInfo> sampler_abi_by_id;
+    for (const auto& resource : pre_resources.separate_samplers) {
+        SamplerAbiInfo abi{};
+        abi.name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
+        if (!compiler->has_decoration(resource.id, spv::DecorationBinding))
+            throw std::runtime_error("Sampler '" + abi.name + "' was not assigned a backend binding by axslcc.");
+
+        abi.reflected_binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        abi.descriptor_set = compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0u;
+
+        sampler_abi_by_id.emplace(resource.id, std::move(abi));
+    }
+
+    if (is_glsl_target) {
+        {
+            std::unordered_map<uint32_t, std::string> image_names;
+            for (const auto& image : pre_resources.separate_images)
+                image_names[image.id] = compiler->get_name(image.id);
+
+            compiler->build_combined_image_samplers();
+
+            std::unordered_map<uint32_t, uint32_t> sampler_by_image;
+            for (const auto& combined : compiler->get_combined_image_samplers()) {
+                auto [sampler_it, inserted] = sampler_by_image.emplace(combined.image_id, combined.sampler_id);
+                if (!inserted && sampler_it->second != combined.sampler_id) {
+                    const auto image_name = compiler->get_name(combined.image_id);
+                    throw std::runtime_error(
+                        "GLSL/ESSL backend does not support sampling one texture with multiple sampler states in Axmol: " +
+                        image_name + ". Use a single sampler for that texture on GL/GLES targets.");
+                }
+
+                auto it = image_names.find(combined.image_id);
+                if (it != image_names.end() && !it->second.empty())
+                    compiler->set_name(combined.combined_id, it->second);
+
+                const uint32_t binding = compiler->has_decoration(combined.image_id, spv::DecorationBinding)
+                    ? compiler->get_decoration(combined.image_id, spv::DecorationBinding)
+                    : 0;
+                const uint32_t descriptor_set = compiler->has_decoration(combined.image_id, spv::DecorationDescriptorSet)
+                    ? compiler->get_decoration(combined.image_id, spv::DecorationDescriptorSet)
+                    : 0;
+                compiler->set_decoration(combined.combined_id, spv::DecorationBinding, binding);
+                compiler->set_decoration(combined.combined_id, spv::DecorationDescriptorSet, descriptor_set);
+            }
+        }
+    }
+
     auto resources = compiler->get_shader_resources();
-    
+    if (!is_glsl_target)
+        resources = pre_resources;
+
     yasio::fast_obstream out;
 
     axslc::sc_chunk_refl header{};
     copy_name(header.name, sizeof(header.name), input.filename().string());
     header.debug_info = 1;
     write_struct(out, header);
-
-    const bool is_hlsl = utils::is_hlsl_source(input);
 
     auto write_input = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.type_id);
@@ -177,6 +328,18 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             write_input(resource);
     }
 
+    auto get_ubo_size = [&](const spirv_cross::SPIRType& type) -> uint32_t {
+        if (target.lang == axslc::SHADER_LANG_MSL)
+            return get_msl_struct_size(*compiler, type);
+
+        return static_cast<uint32_t>(
+            compiler->get_declared_struct_size(type));
+    };
+
+    auto get_member_size = [&](const spirv_cross::SPIRType& type, uint32_t index) -> uint32_t {
+        return static_cast<uint32_t>(compiler->get_declared_struct_member_size(type, index));
+    };
+
     auto write_ubo = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.base_type_id);
         axslc::sc_refl_uniformbuffer ubo{};
@@ -193,7 +356,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             }
         }
         copy_name(ubo.name, sizeof(ubo.name), block_name);
-        ubo.size_bytes = static_cast<uint32_t>(compiler->get_declared_struct_size(type));
+        ubo.size_bytes = get_ubo_size(type);
         ubo.array_size = array_size(compiler->get_type(resource.type_id));
         ubo.num_members = static_cast<uint16_t>(std::min<size_t>(type.member_types.size(), 0xffff));
         write_struct(out, ubo);
@@ -204,7 +367,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             axslc::sc_refl_uniformbuffer_member member{};
             copy_name(member.name, sizeof(member.name), compiler->get_member_name(type.self, i));
             member.offset = static_cast<int32_t>(compiler->type_struct_member_offset(type, i));
-            member.size_bytes = static_cast<uint32_t>(compiler->get_declared_struct_member_size(type, i));
+            member.size_bytes = get_member_size(type, i);
             member.array_size = array_size(member_type);
             member.var_type = resolve_sc_type(member_type);
             write_struct(out, member);
@@ -225,9 +388,6 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         texture.multisample = type.image.ms ? 1 : 0;
         texture.arrayed = type.image.arrayed ? 1 : 0;
         texture.count = array_size(type);
-        texture.sampler_source = resources.separate_images.empty()
-            ? axslc::SC_SAMPLER_SOURCE_TEXTURE_OWNED
-            : axslc::SC_SAMPLER_SOURCE_SHADER_PRESET;
         write_struct(out, texture);
         if (storage)
             ++header.num_storage_images;
@@ -238,40 +398,40 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     for (const auto& resource : resources.sampled_images)
         write_texture(resource, false);
 
-    for (const auto& resource : resources.separate_images)
-        write_texture(resource, false);
-
-    for (const auto& resource : resources.separate_samplers) {
-        auto& type = compiler->get_type(resource.type_id);
-        axslc::sc_refl_sampler sampler{};
-        const auto name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
-        copy_name(sampler.name, sizeof(sampler.name), name);
-        sampler.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
-        sampler.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
-            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
-        sampler.count = array_size(type);
-        sampler.preset_index = preset_sampler_index(name);
-        sampler.comparison = type.basetype == spirv_cross::SPIRType::Sampler && type.image.depth ? 1 : 0;
-        write_struct(out, sampler);
-        ++header.num_samplers;
+    if (!is_glsl_target) {
+        for (const auto& resource : resources.separate_images)
+            write_texture(resource, false);
     }
 
-    if (!resources.separate_images.empty() && !resources.separate_samplers.empty()) {
-        compiler->build_combined_image_samplers();
-        for (const auto& combined : compiler->get_combined_image_samplers()) {
-            axslc::sc_refl_sampling_pair pair{};
-            pair.texture_binding = static_cast<int32_t>(compiler->get_decoration(combined.image_id, spv::DecorationBinding));
-            pair.sampler_binding = static_cast<int32_t>(compiler->get_decoration(combined.sampler_id, spv::DecorationBinding));
-            pair.texture_set = static_cast<uint16_t>(compiler->has_decoration(combined.image_id, spv::DecorationDescriptorSet)
-                ? compiler->get_decoration(combined.image_id, spv::DecorationDescriptorSet) : 0);
-            pair.sampler_set = static_cast<uint16_t>(compiler->has_decoration(combined.sampler_id, spv::DecorationDescriptorSet)
-                ? compiler->get_decoration(combined.sampler_id, spv::DecorationDescriptorSet) : 0);
-            pair.preset_index = preset_sampler_index(compiler->get_name(combined.sampler_id));
-            pair.sampler_source = pair.preset_index >= 0
-                ? axslc::SC_SAMPLER_SOURCE_SHADER_PRESET
-                : axslc::SC_SAMPLER_SOURCE_CUSTOM;
-            write_struct(out, pair);
-            ++header.num_sampling_pairs;
+    if (!is_glsl_target) {
+        for (const auto& resource : resources.separate_samplers) {
+            auto& type = compiler->get_type(resource.type_id);
+            axslc::sc_refl_sampler sampler{};
+            const auto& abi = sampler_abi_by_id.at(resource.id);
+            copy_name(sampler.name, sizeof(sampler.name), abi.name);
+            sampler.binding        = abi.reflected_binding;
+            sampler.descriptor_set = abi.descriptor_set;
+            sampler.count          = array_size(type);
+            sampler.comparison     = type.basetype == spirv_cross::SPIRType::Sampler && type.image.depth ? 1 : 0;
+
+            static constexpr std::string_view kPresetNames[] = {
+                "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
+                "PointClamp", "PointWrap", "PointMirror", "PointBorder",
+                "LinearMipClamp", "LinearMipWrap", "LinearMipMirror", "LinearMipBorder",
+                "AnisoClamp", "AnisoWrap", "AnisoMirror", "AnisoBorder",
+                "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
+                "LinearNoMipClamp", "PointNoMipClamp",
+            };
+            sampler.preset_index = -1;
+            for (size_t i = 0; i < std::size(kPresetNames); ++i) {
+                if (kPresetNames[i] == abi.name) {
+                    sampler.preset_index = static_cast<int16_t>(i);
+                    break;
+                }
+            }
+
+            write_struct(out, sampler);
+            ++header.num_samplers;
         }
     }
 
@@ -284,7 +444,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             axslc::sc_refl_buffer buffer{};
             copy_name(buffer.name, sizeof(buffer.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
             buffer.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
-            buffer.size_bytes = static_cast<uint32_t>(compiler->get_declared_struct_size(type));
+            buffer.size_bytes = get_ubo_size(type);
             buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
                 - compiler->get_declared_struct_size_runtime_array(type, 0));
             write_struct(out, buffer);

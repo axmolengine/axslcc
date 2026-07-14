@@ -14,9 +14,13 @@
 #include <algorithm>
 #include <cstring>
 #include <fmt/format.h>
+#include <limits>
+#include <regex>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace axslcc::spirv
@@ -57,7 +61,6 @@ std::string build_preamble(std::span<const std::string_view> defines,
                            glslang::EShSource source)
 {
     std::string preamble;
-
     if (source != glslang::EShSourceHlsl)
     {
         preamble += "#extension GL_GOOGLE_include_directive : require\n";
@@ -80,6 +83,255 @@ std::string build_preamble(std::span<const std::string_view> defines,
         preamble += "\n";
     }
     return preamble;
+}
+
+std::string strip_comments(std::string_view source)
+{
+    std::string result;
+    result.reserve(source.size());
+    for (size_t i = 0; i < source.size();)
+    {
+        if (i + 1 < source.size() && source[i] == '/' && source[i + 1] == '/')
+        {
+            i += 2;
+            while (i < source.size() && source[i] != '\n')
+                ++i;
+            if (i < source.size())
+                result.push_back(source[i++]);
+            continue;
+        }
+        if (i + 1 < source.size() && source[i] == '/' && source[i + 1] == '*')
+        {
+            i += 2;
+            while (i + 1 < source.size() && !(source[i] == '*' && source[i + 1] == '/'))
+            {
+                if (source[i] == '\n')
+                    result.push_back('\n');
+                ++i;
+            }
+            if (i + 1 < source.size())
+                i += 2;
+            continue;
+        }
+        result.push_back(source[i++]);
+    }
+    return result;
+}
+
+void validate_no_explicit_resource_registers(std::string_view source)
+{
+    static const std::regex kResourceRegisterPattern(
+        R"(:\s*register\s*\(\s*[btsu]\d*)",
+        std::regex_constants::icase | std::regex_constants::optimize);
+
+    if (std::regex_search(strip_comments(source), kResourceRegisterPattern))
+        throw std::runtime_error(
+            "Explicit resource register assignments are not supported. "
+            "Remove ': register(...)'; resource bindings are assigned automatically by axslcc.");
+}
+
+bool is_base_include_line(std::string_view line)
+{
+    static const std::regex kBaseIncludePattern(
+        R"(^\s*#\s*include\s*[<"]base\.hlsli[>"]\s*(?://.*)?$)",
+        std::regex_constants::icase | std::regex_constants::optimize);
+    return std::regex_match(line.begin(), line.end(), kBaseIncludePattern);
+}
+
+fs::path find_base_hlsli(const Options& options)
+{
+    std::vector<fs::path> search_dirs;
+    if (!options.input.empty() && !options.input.parent_path().empty())
+        search_dirs.push_back(options.input.parent_path());
+    search_dirs.insert(search_dirs.end(), options.include_dirs.begin(), options.include_dirs.end());
+
+    for (const auto& dir : search_dirs)
+    {
+        auto candidate = dir / "base.hlsli";
+        if (fs::exists(candidate))
+            return candidate;
+    }
+
+    throw std::runtime_error("failed to locate base.hlsli for Axmol built-in sampler layout");
+}
+
+std::string inline_base_hlsli(std::string source, const Options& options)
+{
+    std::string result;
+    result.reserve(source.size());
+
+    bool inlined = false;
+    size_t line_start = 0;
+    while (line_start < source.size())
+    {
+        const size_t line_end = source.find('\n', line_start);
+        const size_t line_size = (line_end == std::string::npos ? source.size() : line_end) - line_start;
+        const std::string_view line(source.data() + line_start, line_size);
+
+        if (is_base_include_line(line))
+        {
+            if (!inlined)
+            {
+                auto base = utils::read_text_file(find_base_hlsli(options));
+                result += "\n// axslcc inlined base.hlsli for resource layout\n";
+                result += base;
+                if (!result.empty() && result.back() != '\n')
+                    result.push_back('\n');
+                inlined = true;
+            }
+        }
+        else
+        {
+            result.append(line);
+            if (line_end != std::string::npos)
+                result.push_back('\n');
+        }
+
+        if (line_end == std::string::npos)
+            break;
+        line_start = line_end + 1;
+    }
+
+    return result;
+}
+
+uint32_t resource_array_count(std::string_view arraySuffix, std::string_view name)
+{
+    if (arraySuffix.empty())
+        return 1;
+
+    std::string_view value = arraySuffix;
+    if (value.size() >= 2 && value.front() == '[' && value.back() == ']')
+        value = value.substr(1, value.size() - 2);
+
+    const auto first = value.find_first_not_of(" \t\r\n");
+    const auto last  = value.find_last_not_of(" \t\r\n");
+    if (first == std::string_view::npos)
+        throw std::runtime_error("Resource array '" + std::string(name) + "' must use a numeric literal size.");
+
+    value = value.substr(first, last - first + 1);
+    if (!std::all_of(value.begin(), value.end(), [](char ch) { return ch >= '0' && ch <= '9'; }))
+        throw std::runtime_error(
+            "Resource array '" + std::string(name) +
+            "' must use a numeric literal size because axslcc assigns resource bindings before compilation.");
+
+    uint64_t count = 0;
+    for (char ch : value)
+        count = count * 10 + static_cast<uint64_t>(ch - '0');
+
+    if (count == 0 || count > std::numeric_limits<uint32_t>::max())
+        throw std::runtime_error("Resource array '" + std::string(name) + "' has an invalid size.");
+
+    return static_cast<uint32_t>(count);
+}
+
+uint32_t sampler_space_for_target(const Options& options, const Target& target)
+{
+    (void)options;
+    (void)target;
+    return 1u;
+}
+
+int32_t find_builtin_sampler_preset(std::string_view name)
+{
+    static constexpr std::string_view kPresetNames[] = {
+        "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
+        "PointClamp", "PointWrap", "PointMirror", "PointBorder",
+        "LinearMipClamp", "LinearMipWrap", "LinearMipMirror", "LinearMipBorder",
+        "AnisoClamp", "AnisoWrap", "AnisoMirror", "AnisoBorder",
+        "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
+        "LinearNoMipClamp", "PointNoMipClamp",
+    };
+
+    for (size_t i = 0; i < std::size(kPresetNames); ++i)
+    {
+        if (kPresetNames[i] == name)
+            return static_cast<int32_t>(i);
+    }
+
+    return -1;
+}
+
+std::string inject_hlsl_resource_layout(std::string source, const Options& options, const Target& target)
+{
+    struct Allocation
+    {
+        uint32_t cbv{0};
+        uint32_t srv{0};
+        uint32_t uav{0};
+    } alloc;
+
+    if (options.stage == ShaderStage::Fragment)
+        alloc.cbv = 1;
+    const uint32_t samplerSpace = sampler_space_for_target(options, target);
+
+    auto apply_regex = [](std::string text, const std::regex& pattern, auto&& replacer) {
+        std::string result;
+        size_t last = 0;
+        for (std::sregex_iterator it(text.begin(), text.end(), pattern), end; it != end; ++it)
+        {
+            const auto& match = *it;
+            result.append(text, last, static_cast<size_t>(match.position()) - last);
+            result += replacer(match);
+            last = static_cast<size_t>(match.position() + match.length());
+        }
+        result.append(text, last, std::string::npos);
+        return result;
+    };
+
+    static const std::regex kCBufferPattern(
+        R"(\b(cbuffer)\s+([A-Za-z_]\w*)\s*(\{))",
+        std::regex_constants::optimize);
+    source = apply_regex(std::move(source), kCBufferPattern, [&](const std::smatch& match) {
+        const auto binding = alloc.cbv++;
+        return match.str(1) + " " + match.str(2) + " : register(b" + std::to_string(binding) + ", space0) " +
+               match.str(3);
+    });
+
+    static const std::regex kResourcePattern(
+        R"(\b((?:RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:\s*<[^;{}>]+>)?|(?:RW)?(?:StructuredBuffer|ByteAddressBuffer)(?:\s*<[^;{}>]+>)?|(?:RW)?Buffer(?:\s*<[^;{}>]+>)?|Sampler(?:Comparison)?State)\s+([A-Za-z_]\w*)\s*(\[[^\]]+\])?\s*;)",
+        std::regex_constants::optimize);
+
+    source = apply_regex(std::move(source), kResourcePattern, [&](const std::smatch& match) {
+        const std::string type = match.str(1);
+        const std::string name = match.str(2);
+        const std::string arraySuffix = match.str(3);
+        const uint32_t count = resource_array_count(arraySuffix, name);
+
+        char regClass = 't';
+        uint32_t binding = 0;
+        uint32_t space = 1;
+
+        if (type.find("Sampler") != std::string::npos)
+        {
+            regClass = 's';
+            space = samplerSpace;
+
+            auto presetIdx = find_builtin_sampler_preset(name);
+            if (presetIdx < 0)
+                throw std::runtime_error(
+                    "Custom sampler '" + name + "' is not supported yet.\n"
+                    "Use a built-in Axmol sampler name.");
+            binding = static_cast<uint32_t>(presetIdx);
+        }
+        else if (type.rfind("RW", 0) == 0)
+        {
+            regClass = 'u';
+            binding = alloc.uav;
+            alloc.uav += count;
+        }
+        else
+        {
+            regClass = 't';
+            binding = alloc.srv;
+            alloc.srv += count;
+        }
+
+        return type + " " + name + arraySuffix + " : register(" + regClass + std::to_string(binding) + ", space" +
+               std::to_string(space) + ");";
+    });
+
+    return source;
 }
 
 bool compile_to_spirv(const Options& options, std::span<const std::string_view> defines,
@@ -202,6 +454,13 @@ CompileUnit compile_input(const Options& options, const Target& target)
     std::string source_text = utils::read_text_file(options.input);
     glslang::EShSource source = (options.input_lang == InputLang::HLSL) ? glslang::EShSourceHlsl : glslang::EShSourceGlsl;
 
+    if (options.input_lang == InputLang::HLSL)
+    {
+        source_text = inline_base_hlsli(std::move(source_text), options);
+        validate_no_explicit_resource_registers(source_text);
+        source_text = inject_hlsl_resource_layout(std::move(source_text), options, target);
+    }
+
     std::vector<EShLanguage> candidates;
     switch (options.stage) {
     case ShaderStage::Vertex:
@@ -229,7 +488,7 @@ CompileUnit compile_input(const Options& options, const Target& target)
 
         // DXC preserves all globals from base.hlsli as entry-point interface
         // variables. Remove unused sampler presets before reflection/layout
-        // generation; otherwise a shader using one sampler would expose all 22.
+        // generation; otherwise a shader using one sampler would expose all preset samplers.
         spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1);
         optimizer.RegisterPassFromFlag("--eliminate-dead-variables", false);
         std::vector<uint32_t> optimized;
