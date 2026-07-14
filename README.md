@@ -34,108 +34,151 @@ Use repository tags or release archives to check out the exact legacy version yo
 
 **Note:** This repository and its legacy artifacts are intended to help users who must maintain or rebuild older axmol targets. For new work, migrate to the rewritten axslcc (version **>= 3.99.0**) when it becomes available.
 
+## Command Line
+
+```
+axslcc [options] <input>
+```
+
+| Option | Description |
+|--------|-------------|
+| `-o <path>` | Output file or basename (default: input stem) |
+| `-t <target>` | Output target, repeatable: `d3d11`, `d3d12`, `vk`, `mtl`, `gl`, `gles` |
+| `-a` | Write an Axmol `.sc` archive with reflection data |
+| `-x <lang>` | Input language: `hlsl`, `glsl` (default: `hlsl`) |
+| `--hlsl-frontend <dxc\|glslang>` | HLSL frontend (default: `dxc`) |
+| `--vulkan-samplers <separate\|combined>` | Vulkan descriptor model (default: `separate`) |
+| `-S` | Keep HLSL source, don't compile to DXBC/DXIL (D3D targets only) |
+| `-O<level>` | Optimization level: `0` (debug, default), `1` (size), `2` (speed), `3` (aggressive) |
+| `-I <dir>` | Include directory (repeatable) |
+| `-D <name>[=<val>]` | Preprocessor define (repeatable) |
+| `--cvar <name>` | C variable name for embedded shader data |
+| `--version` | Print version and exit |
+
+The shader stage is detected from the filename: a `_vs` / `_ps` / `_cs` suffix
+or a `.vert` / `.frag` / `.comp` extension. Legacy `lang-profile` target specs
+(e.g. `hlsl-50`, `spirv-100`, `msl-20000`, `glsl-330`, `essl-300`) are also
+accepted by `-t`.
+
 ## Shader Compilation Architecture
 
 ### Pipeline
 
-axslcc compiles HLSL/GLSL shaders through a multi-stage pipeline:
+axslcc compiles HLSL/GLSL shaders through a multi-stage pipeline. Every target
+is first lowered to SPIR-V by a frontend, then SPIRV-Cross cross-compiles that
+SPIR-V to the requested language (or FXC/DXC turn the resulting HLSL into D3D
+bytecode):
 
 ```
+HLSL / GLSL source
+        │
+        ▼
+   ┌──────────────────────────────────┐
+   │ Frontend → SPIR-V                 │  resolves #include / #define
+   │   • HLSL: DXC (default) or        │
+   │     glslang (--hlsl-frontend)     │
+   │   • GLSL: glslang                 │
+   └────────────────┬─────────────────┘
+                    │  SPIR-V (intermediate IR)
+                    ▼
+   ┌──────────────────────────────────┐
+   │            SPIRV-Cross            │
+   └────────────────┬─────────────────┘
+                    │
+                    ├── vk    → SPIR-V binary (runtime metadata stripped)
+                    ├── gl    → GLSL text
+                    ├── gles  → GLSL ES text
+                    ├── mtl   → Metal Shading Language text
+                    └── d3d11 / d3d12 → clean HLSL text
+                                          │
+                                          │ default: compile to bytecode
+                                          ├── profile <= 51 → FXC → DXBC (Windows)
+                                          ├── profile >= 60 → DXC → DXIL
+                                          │
+                                          └── -S: keep HLSL source text
+```
+
+Routing D3D targets through SPIRV-Cross first ensures glslang/Vulkan-specific
+annotations like `[[vk::builtin("PointSize")]]` are stripped before the HLSL
+output is fed to FXC/DXC, which do not recognize them.
 
 ### HLSL frontend and Vulkan samplers
 
-DXC is the default HLSL frontend on Windows, Linux, and macOS. It is used through the DXC library API and must be provided as a pinned distribution at build time (`AXSLCC_DXC_ROOT`), in `3rdparty/dxc`, or by `VULKAN_SDK`. Release packages must ship the matching `dxcompiler` runtime next to `axslcc`.
+DXC is the default HLSL frontend on Windows, Linux, and macOS, used through the
+DXC library API. It is auto-downloaded as a pinned prebuilt distribution by
+`3rdparty/dxc` at build time; the location can be overridden with the
+`AXSLCC_DXC_ROOT` CMake cache variable. Release packages ship the matching
+`dxcompiler` runtime next to `axslcc`.
 
-Use `--hlsl-frontend dxc|glslang` to select the temporary migration frontend; the default is `dxc`. There is no implicit fallback when DXC is unavailable.
+Use `--hlsl-frontend dxc|glslang` to select the frontend; the default is `dxc`.
+`glslang` is a temporary migration path and cannot emit Vulkan separate samplers.
 
-Vulkan defaults to separate sampled-image and sampler descriptors:
+Vulkan (`-t vk`) defaults to separate sampled-image and sampler descriptors:
 
 ```bash
 axslcc --vulkan-samplers separate -t vk shader_ps.hlsl
 ```
 
-DXC shifts sampler bindings into a separate Vulkan binding range and removes unused `base.hlsli` presets. `--vulkan-samplers combined` retains the compatibility round-trip for texture-owned sampler pipelines. GLSL/ESSL targets continue to generate combined sampler uniforms.
-HLSL/GLSL source
-       │
-       ├── (--dxbc path, Windows only, HLSL input)
-       │       │
-       │       └── Unified → glslang → SPIR-V → SPIRV-Cross → clean HLSL
-       │               │
-       │               ├── profile <= 51 → FXC → DXBC bytecode
-       │               └── profile >= 60 → DXC → DXIL bytecode
-       │
-       └── (source output path, all platforms)
-               │
-               ▼
-          ┌─────────┐
-          │ glslang  │  ── preprocessor (resolves #include, #define)
-          └────┬────┘
-               │
-               ▼
-          ┌─────────┐
-          │  SPIR-V  │  ── intermediate binary IR
-          └────┬────┘
-               │
-               ▼
-          ┌──────────────┐
-          │  SPIRV-Cross  │  ── cross-compile to target language
-          └────┬─────────┘
-               │
-               ├── (reflection)  SPIRV-Cross reflection data  ← unified for all modes
-               │
-               └── .sc container with text source (HLSL/GLSL/MSL/ESSL)
+DXC shifts sampler bindings into a separate Vulkan binding range and removes
+unused `base.hlsli` presets. `--vulkan-samplers combined` retains the
+compatibility round-trip (SPIR-V → GLSL → SPIR-V) for texture-owned sampler
+pipelines. GLSL/ESSL targets always generate combined sampler uniforms.
 
-All --dxbc paths now route through SPIRV-Cross first. This ensures that
-glslang-specific annotations like [[vk::builtin("PointSize")]] are stripped
-before the HLSL output is fed to DXC/FXC, which do not recognize them.
-```
+### D3D bytecode (default) vs. source (`-S`)
 
-`--dxbc` bytecode compilation routes all targets through the full pipeline: glslang → SPIR-V → SPIRV-Cross → clean HLSL → FXC/DXC. The SPIRV-Cross step strips Vulkan-specific annotations like `[[vk::builtin(...)]]` from the HLSL output, ensuring compatibility with DXC/FXC.
-
-### Reflection
-
-Reflection data (vertex inputs, constant buffers, textures) is generated via SPIRV-Cross from the glslang-produced SPIR-V intermediate, ensuring consistent results across all output modes (source text and bytecode).
-
-### Target Types
-
-| Target    | Source Output (no `--dxbc`) | Bytecode Output (`--dxbc`) |
-|-----------|----------------------------|---------------------------|
-| `d3d11`   | HLSL text (SM 5.0)         | DXBC via FXC (SM 5.0)     |
-| `d3d12`   | HLSL text (SM 5.1)         | DXBC SM 5.1 (FXC) + DXIL SM 6.0 (DXC) |
-| `essl-300`| GLSL ES text               | —                          |
-| `glsl-330`| GLSL text                  | —                          |
-| `spirv-100`| SPIR-V binary              | —                          |
-| `msl-*`   | Metal Shading Language      | —                          |
+For D3D targets (`d3d11`, `d3d12`) axslcc compiles to bytecode by default: the
+clean HLSL emitted by SPIRV-Cross is fed to FXC (SM <= 5.1, Windows only) or DXC
+(SM >= 6.0). Pass `-S` to keep the HLSL source text instead of compiling it. FXC
+is only built on Windows.
 
 ### d3d12 Bytecode Expansion
 
-When `--dxbc` is specified with `--target=d3d12`, axslcc produces **two** entries in the .sc container:
+When bytecode is produced for `-t d3d12` (i.e. without `-S`, Windows only),
+axslcc emits **two** entries in the `.sc` archive:
 
-1. **SM 5.1 (FXC)**: `profile_ver = 51 | SC_PROFILE_BINARY` — DXBC for backward compatibility with older D3D12 drivers
-2. **SM 6.0 (DXC)**: `profile_ver = 60 | SC_PROFILE_BINARY` — DXIL for modern D3D12 drivers
+1. **SM 5.1 (FXC)**: `profile_ver = 51 | SC_BYTECODE_FLAG` — DXBC for backward compatibility with older D3D12 drivers
+2. **SM 6.0 (DXC)**: `profile_ver = 60 | SC_BYTECODE_FLAG` — DXIL for modern D3D12 drivers
 
-### .sc Container Binary Flag
+### .sc Archive Binary Flag
 
-The `.sc` container stores a per-target `profile_ver` field. Bit 31 (`SC_PROFILE_BINARY = 0x80000000`) indicates whether the code chunk contains bytecode:
+The `.sc` archive (`-a`) stores a per-target `profile_ver` field. Bit 31
+(`SC_BYTECODE_FLAG = 0x80000000`) indicates whether the code chunk contains
+bytecode:
 
 | `profile_ver` | Content |
 |---------------|---------|
 | `51` | HLSL source text (SM 5.1) |
-| `51 \| SC_PROFILE_BINARY` | DXBC bytecode (SM 5.1) |
-| `60 \| SC_PROFILE_BINARY` | DXIL bytecode (SM 6.0) |
+| `51 \| SC_BYTECODE_FLAG` | DXBC bytecode (SM 5.1) |
+| `60 \| SC_BYTECODE_FLAG` | DXIL bytecode (SM 6.0) |
 
-The RHI runtime reads this flag to determine if the data should be passed to `CreateVertexShader`/`CreatePixelShader` (bytecode) or compiled at runtime (source).
+The RHI runtime reads this flag to decide whether the data is passed to
+`CreateVertexShader`/`CreatePixelShader` (bytecode) or compiled at runtime
+(source).
+
+### Target Types
+
+| Target   | Source Output (`-S`)   | Bytecode Output (default) |
+|----------|------------------------|---------------------------|
+| `d3d11`  | HLSL text (SM 5.0)     | DXBC via FXC (SM 5.0)     |
+| `d3d12`  | HLSL text (SM 5.1)     | DXBC SM 5.1 (FXC) + DXIL SM 6.0 (DXC) |
+| `vk`     | —                      | SPIR-V binary             |
+| `gl`     | GLSL text (330)        | —                          |
+| `gles`   | GLSL ES text (300)     | —                          |
+| `mtl`    | Metal Shading Language | —                          |
 
 ### Reflection
 
-Reflection data (vertex inputs, constant buffers, textures) is generated via SPIRV-Cross and embedded in the `REFL` chunk of the .sc container when `--reflect` is specified. Reflection always uses the SPIRV-Cross path regardless of source/bytecode output mode.
+Reflection data (vertex inputs, uniform/constant buffers, textures, samplers) is
+generated via SPIRV-Cross from the frontend-produced SPIR-V and embedded in the
+`REFL` chunk of the `.sc` archive when `-a` is specified. Reflection always uses
+the SPIRV-Cross path regardless of source/bytecode output mode.
 
 ### Compiler Backends
 
-| Backend | File | Purpose |
-|---------|------|---------|
+| Stage | File | Purpose |
+|-------|------|---------|
 | glslang | `spirv_compiler.cpp` | HLSL/GLSL → SPIR-V (preprocessor, parser, validator) |
+| DXC | `dxc_compiler.cpp` | HLSL frontend → SPIR-V; HLSL backend → DXIL (SM 6.0) |
 | SPIRV-Cross | `cross_compiler.cpp` | SPIR-V → target language (HLSL/GLSL/MSL/ESSL) |
-| SPIRV-Cross | `reflection.cpp` | SPIR-V → .sc reflection data (UBO/texture/input bindings) |
-| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM 5.0 / 5.1) — `--dxbc` d3d11/d3d12 bytecode |
-| DXC | `dxc_compiler.cpp` | HLSL → DXIL (SM 6.0) — `--dxbc` d3d12 bytecode |
+| SPIRV-Cross | `reflection.cpp` | SPIR-V → `.sc` reflection data (UBO/texture/sampler/input bindings) |
+| FXC | `fxc_compiler.cpp` | HLSL → DXBC (SM <= 5.1) — Windows only |
