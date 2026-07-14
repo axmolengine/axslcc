@@ -200,6 +200,9 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         auto* msl = static_cast<spirv_cross::CompilerMSL*>(compiler.get());
         auto msl_options = msl->get_msl_options();
         msl_options.platform = spirv_cross::CompilerMSL::Options::iOS;
+        msl_options.ios_support_base_vertex_instance = true;
+        msl_options.enable_decoration_binding = true;
+        msl_options.enable_base_index_zero = true;
         msl_options.msl_version = static_cast<uint32_t>(target.profile);
         msl->set_msl_options(msl_options);
     }
