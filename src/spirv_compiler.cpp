@@ -361,10 +361,8 @@ bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,
 std::string spirv_to_bytes(const std::vector<uint32_t>& spirv)
 {
     std::string bytes;
-    bytes.resize_and_overwrite(spirv.size() * sizeof(uint32_t), [&](char* buf, size_t n) {
-        std::memcpy(buf, spirv.data(), n);
-        return n;
-    });
+    bytes.reserve(spirv.size() * sizeof(uint32_t));
+    bytes.append(reinterpret_cast<const char*>(spirv.data()), spirv.size() * sizeof(uint32_t));
     return bytes;
 }
 
