@@ -31,7 +31,7 @@ uint32_t sc_stage(ShaderStage stage)
     case ShaderStage::Compute:
         return SC_STAGE_COMPUTE;
     default:
-        return 0;
+        throw std::runtime_error("unknown shader stage");
     }
 }
 

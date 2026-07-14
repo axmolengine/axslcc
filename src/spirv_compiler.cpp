@@ -44,7 +44,7 @@ inline constexpr GlslLocationDefine kLegacyGlslVertexDefines[16] = {
     {"TEXCOORD4"sv, 6},
     {"TEXCOORD5"sv, 7},
     {"TEXCOORD6"sv, 8},
-    {"TEXCOORD7sv", 9},
+    {"TEXCOORD7"sv, 9},
     {"COLOR0"sv, 10},
     {"COLOR1"sv, 11},
     {"TANGENT"sv, 12},

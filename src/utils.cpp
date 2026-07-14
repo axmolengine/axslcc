@@ -46,7 +46,7 @@ bool starts_with(std::string_view value, std::string_view prefix)
 
 void print_help()
 {
-    std::cerr
+    std::cout
         << "axslcc - Axmol shader compiler\n\n"
         << "Usage:\n"
         << "  axslcc [options] <input>\n\n"
