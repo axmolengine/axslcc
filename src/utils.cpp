@@ -65,6 +65,7 @@ void print_help()
         << "  -O<level>          Optimization level: 0 (debug, default), 1 (favor size), 2 (favor speed), 3 (aggressive)\n"
         << "  -I <dir>           Include directory (repeatable)\n"
         << "  -D <name>[=<val>]  Preprocessor define (repeatable)\n"
+        << "  --msl-ios          Target iOS Metal (default: macOS)\n"
         << "  --cvar <name>      C variable name for embedded shader data\n"
         << "  --version          Print version and exit\n";
 }
@@ -246,6 +247,8 @@ Options parse_args(int argc, char** argv)
             options.defines.push_back(value);
         } else if (starts_with(arg, "-D") && arg.size() > 2) {
             options.defines.push_back(arg.substr(2));
+        } else if (arg == "--msl-ios") {
+            options.msl_ios = true;
         } else if (arg == "--cvar") {
             require_value(argc, argv, i, "--cvar", value);
             options.cvar = value;

@@ -30,15 +30,15 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& tar
 } // namespace
 
 OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spirv,
-                         const fs::path& input,
+                         const Options& options,
                          std::vector<UniformBlockNameOverride>* uniform_block_names)
 {
     if (target.lang == axslc::SHADER_LANG_SPIRV)
         return OutputBlob{target, spirv::spirv_to_bytes(spirv)};
 
     auto compiler = make_cross_compiler(target, spirv);
-    auto options = compiler->get_common_options();
-    options.flatten_multidimensional_arrays = true;
+    auto spv_options = compiler->get_common_options();
+    spv_options.flatten_multidimensional_arrays = true;
 
     if (target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL) {
         // Save original separate image names before building combined samplers
@@ -61,7 +61,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         // UserSemantic decoration as that name; no generated naming convention
         // becomes part of the shader ABI. Keep vertex attributes on their raw
         // compiler-local names so COLOR0 input/output cannot collide.
-        if (utils::is_hlsl_source(input))
+        if (utils::is_hlsl_source(options.input))
         {
             auto post_resources = compiler->get_shader_resources();
             const auto model = compiler->get_execution_model();
@@ -88,12 +88,12 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     }
 
     if (target.lang == axslc::SHADER_LANG_ESSL) {
-        options.es = true;
-        options.version = target.profile;
+        spv_options.es = true;
+        spv_options.version = target.profile;
     } else if (target.lang == axslc::SHADER_LANG_GLSL) {
-        options.es = false;
-        options.version = target.profile;
-        options.enable_420pack_extension = false;
+        spv_options.es = false;
+        spv_options.version = target.profile;
+        spv_options.enable_420pack_extension = false;
     } else if (target.lang == axslc::SHADER_LANG_HLSL) {
         auto* hlsl = static_cast<spirv_cross::CompilerHLSL*>(compiler.get());
         auto hlsl_options = hlsl->get_hlsl_options();
@@ -199,7 +199,9 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     } else if (target.lang == axslc::SHADER_LANG_MSL) {
         auto* msl = static_cast<spirv_cross::CompilerMSL*>(compiler.get());
         auto msl_options = msl->get_msl_options();
-        msl_options.platform = spirv_cross::CompilerMSL::Options::iOS;
+        msl_options.platform = options.msl_ios
+            ? spirv_cross::CompilerMSL::Options::iOS
+            : spirv_cross::CompilerMSL::Options::macOS;
         msl_options.ios_support_base_vertex_instance = true;
         msl_options.enable_decoration_binding = true;
         msl_options.enable_base_index_zero = true;
@@ -207,7 +209,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         msl->set_msl_options(msl_options);
     }
 
-    compiler->set_common_options(options);
+    compiler->set_common_options(spv_options);
     std::string code = compiler->compile();
 
     if (uniform_block_names &&
@@ -226,7 +228,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
     }
 
     tlx::byte_buffer bytes(code.begin(), code.end());
-    bytes.push_back(0);
+    bytes.push_back(0); // add null-terminator
     return OutputBlob{target, std::move(bytes)};
 }
 

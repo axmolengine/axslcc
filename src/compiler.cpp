@@ -93,7 +93,7 @@ void Compiler::compile(const Options& options)
         {  // D3D HLSL bytecode or SPIR-V binary
             if (target.lang == axslc::SHADER_LANG_HLSL)
             {
-                auto crossBlob = cross::cross_compile(target, unit.spirv, options.input);
+                auto crossBlob = cross::cross_compile(target, unit.spirv, options);
                 std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()), crossBlob.data.size());
 
                 auto all_defines = options.defines;
@@ -169,7 +169,7 @@ void Compiler::compile(const Options& options)
 
                 // Step 2: Cross-compile to Vulkan GLSL
                 Target glslTarget{axslc::SHADER_LANG_GLSL, 450, "glsl-450"};
-                auto glslOutput = cross::cross_compile(glslTarget, unit.spirv, options.input);
+                auto glslOutput = cross::cross_compile(glslTarget, unit.spirv, options);
                 auto glslSize   = glslOutput.data.size();
                 while (glslSize > 0 && glslOutput.data[glslSize - 1] == 0)
                     --glslSize;
@@ -216,7 +216,7 @@ void Compiler::compile(const Options& options)
         else
         {  // Keep source text (GLSL, ESSL, MSL, or HLSL with -S)
             std::vector<UniformBlockNameOverride> uniformBlockNames;
-            blob = cross::cross_compile(target, unit.spirv, options.input, &uniformBlockNames);
+            blob = cross::cross_compile(target, unit.spirv, options, &uniformBlockNames);
 
             if (options.archive)
                 reflections.push_back(

@@ -91,6 +91,7 @@ struct Options
     InputLang input_lang = InputLang::HLSL; // -x
     HlslFrontend hlsl_frontend = HlslFrontend::DXC; // --hlsl-frontend
     VulkanSamplerMode vulkan_sampler_mode = VulkanSamplerMode::Separate; // --vulkan-samplers
+    bool msl_ios = false;              // --msl-ios
     bool xlang = false;                 // true if -x was explicitly specified
     ShaderStage stage = ShaderStage::Vertex;  // detected from filename
     std::string cvar;                  // --cvar
