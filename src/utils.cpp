@@ -9,6 +9,7 @@
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
+#include <charconv>
 
 namespace axslcc::utils
 {
@@ -314,12 +315,12 @@ ShaderInfo classify(const fs::path& input)
         info.stage = ShaderStage::Compute;
     else if (stem.ends_with("_vs"))
         info.stage = ShaderStage::Vertex;
-    else if (stem.ends_with("_ps"))
+    else if (stem.ends_with("_fs") || stem.ends_with("_ps"))
         info.stage = ShaderStage::Fragment;
     else if (stem.ends_with("_cs"))
         info.stage = ShaderStage::Compute;
     else
-        throw std::runtime_error(fmt::format("cannot determine shader stage from filename '{}' (expected _vs/_ps/_cs suffix or .vert/.frag/.comp extension)", input.string()));
+        throw std::runtime_error(fmt::format("cannot determine shader stage from filename '{}' (expected _vs/_fs/_ps/_cs suffix or .vert/.frag/.comp extension)", input.string()));
 
     // Detect language
     if (ext == ".hlsl" || ext == ".fx" || ext == ".hlsli")
@@ -337,15 +338,10 @@ bool is_hlsl_source(const fs::path& input)
     return ext == ".hlsl" || ext == ".fx";
 }
 
-std::pair<std::string, uint16_t> split_semantic(std::string_view semantic, uint32_t location)
+std::pair<std::string, uint16_t> parse_semantic(std::string_view semantic)
 {
     if (semantic.empty())
-    {
-        if (location < static_cast<uint32_t>(axslc::kVertexSemanticCount))
-            semantic = axslc::kVertexSemanticNames[location];
-        else
-            return {"TEXCOORD", static_cast<uint16_t>(location - 8)};
-    }
+        return {std::string{}, 0};
 
     size_t digit_pos = semantic.size();
     while (digit_pos > 0 && std::isdigit(static_cast<unsigned char>(semantic[digit_pos - 1])))
@@ -353,7 +349,16 @@ std::pair<std::string, uint16_t> split_semantic(std::string_view semantic, uint3
 
     uint16_t index = 0;
     if (digit_pos < semantic.size())
-        index = static_cast<uint16_t>(std::stoul(std::string(semantic.substr(digit_pos))));
+    {
+        uint32_t parsed_index = 0;
+        auto digits = semantic.substr(digit_pos);
+        auto first  = digits.data();
+        auto last   = digits.data() + digits.size();
+        auto result = std::from_chars(first, last, parsed_index);
+        if (result.ec != std::errc{} || result.ptr != last || parsed_index > UINT16_MAX)
+            throw std::runtime_error(fmt::format("invalid vertex semantic index '{}'", digits));
+        index = static_cast<uint16_t>(parsed_index);
+    }
 
     return {std::string(semantic.substr(0, digit_pos)), index};
 }

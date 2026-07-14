@@ -34,9 +34,9 @@ bool is_hlsl_source(const fs::path& input);
 
 // ============= Vertex Attribute Semantics =============
 
-// Split a full semantic string ("TEXCOORD0") into {base name, index} = {"TEXCOORD", 0}
-// Falls back to axslc::kVertexSemanticNames[location] when semantic is empty
-std::pair<std::string, uint16_t> split_semantic(std::string_view semantic, uint32_t location);
+// Parses a full semantic string into {base name, index}.
+// Returns {"", 0} for an empty semantic.
+std::pair<std::string, uint16_t> parse_semantic(std::string_view semantic);
 
 // ============= Path Utilities =============
 

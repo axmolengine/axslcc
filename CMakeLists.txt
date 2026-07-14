@@ -110,6 +110,9 @@ endif()
 
 add_subdirectory(3rdparty/dxc)
 add_subdirectory(3rdparty/glslang)
+if(TARGET SPIRV-Tools-static AND TARGET SPIRV-Tools-shared)
+  add_dependencies(SPIRV-Tools-static SPIRV-Tools-shared)
+endif()
 add_subdirectory(3rdparty/spirv-cross)
 
 set(axslcc_SOURCES 

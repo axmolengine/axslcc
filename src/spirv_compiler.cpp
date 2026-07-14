@@ -24,13 +24,46 @@ namespace axslcc::spirv
 namespace
 {
 
-std::string build_preamble(const std::vector<std::string>& defines, glslang::EShSource source)
+using namespace std::string_view_literals;
+
+struct GlslLocationDefine
+{
+    std::string_view name;
+    uint32_t location;
+};
+
+// For internal migrate verification purpose only
+inline constexpr GlslLocationDefine kLegacyGlslVertexDefines[16] = {
+    {"POSITION"sv, 0},
+    {"NORMAL"sv, 1},
+    {"TEXCOORD0"sv, 2},
+    {"TEXCOORD1"sv, 3},
+    {"TEXCOORD2"sv, 4},
+    {"TEXCOORD3"sv, 5},
+    {"TEXCOORD4"sv, 6},
+    {"TEXCOORD5"sv, 7},
+    {"TEXCOORD6"sv, 8},
+    {"TEXCOORD7sv", 9},
+    {"COLOR0"sv, 10},
+    {"COLOR1"sv, 11},
+    {"TANGENT"sv, 12},
+    {"BINORMAL"sv, 13},
+    {"BLENDINDICES"sv, 14},
+    {"BLENDWEIGHT"sv, 15},
+};
+
+std::string build_preamble(const std::vector<std::string>& defines,
+                           glslang::EShSource source)
 {
     std::string preamble;
-    if (source != glslang::EShSourceHlsl) {
+
+    if (source != glslang::EShSourceHlsl)
+    {
         preamble += "#extension GL_GOOGLE_include_directive : require\n";
-        for (size_t i = 0; i < std::size(axslc::kVertexSemanticNames); ++i)
-            preamble += fmt::format("#define {} {}\n", axslc::kVertexSemanticNames[i], i);
+
+        for (const auto& semantic : kLegacyGlslVertexDefines)
+            preamble += fmt::format("#define {} {}\n", semantic.name, semantic.location);
+
         for (int i = 0; i < 8; ++i)
             preamble += fmt::format("#define SV_Target{} {}\n", i, i);
     }

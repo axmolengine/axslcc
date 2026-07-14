@@ -81,10 +81,11 @@ void write_struct(yasio::fast_obstream& out, const T& value)
     out.write_bytes(&value, static_cast<int>(sizeof(T)));
 }
 
-void copy_name(char* dst, size_t size, const std::string& name)
+void copy_name(char* dst, size_t size, std::string_view name)
 {
     std::memset(dst, 0, size);
-    std::strncpy(dst, name.c_str(), size - 1);
+    const auto copy_size = std::min(name.size(), size - 1);
+    std::memcpy(dst, name.data(), copy_size);
 }
 
 std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, const std::vector<uint32_t>& spirv)
@@ -120,59 +121,54 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     auto write_input = [&](const spirv_cross::Resource& resource) {
         auto& type = compiler->get_type(resource.type_id);
 
-        auto write_one = [&](const std::string& member_name, uint32_t member_idx, const spirv_cross::SPIRType& member_type,
-                             uint32_t location) {
-            auto [semantic, sem_index] = utils::split_semantic({}, location);
+        auto write_one = [&](const std::string& name, const spirv_cross::SPIRType& input_type,
+                            uint32_t location, std::string_view semantic_name = {}) {
             axslc::sc_refl_input input_refl{};
-            copy_name(input_refl.name, sizeof(input_refl.name), member_name);
-            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
+            copy_name(input_refl.name, sizeof(input_refl.name), name);
             input_refl.location = static_cast<int32_t>(location);
-            input_refl.semantic_index = sem_index;
-            input_refl.var_type = resolve_sc_type(member_type);
+            input_refl.semantic_index = 0;
+            input_refl.var_type = resolve_sc_type(input_type);
+
+            if (!semantic_name.empty())
+            {
+                auto [semantic, sem_index] = utils::parse_semantic(semantic_name);
+                copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
+                input_refl.semantic_index = sem_index;
+            }
+
             write_struct(out, input_refl);
             ++header.num_inputs;
         };
 
-        auto write_one_decorated = [&](const std::string& member_name, uint32_t member_idx,
-                                       const spirv_cross::SPIRType& member_type,
-                                       uint32_t location, const std::string& decoration) {
-            auto [semantic, sem_index] = utils::split_semantic(decoration, location);
-            axslc::sc_refl_input input_refl{};
-            copy_name(input_refl.name, sizeof(input_refl.name), member_name);
-            copy_name(input_refl.semantic, sizeof(input_refl.semantic), semantic);
-            input_refl.location = static_cast<int32_t>(location);
-            input_refl.semantic_index = sem_index;
-            input_refl.var_type = resolve_sc_type(member_type);
-            write_struct(out, input_refl);
-            ++header.num_inputs;
-        };
-
-        uint32_t member_count = static_cast<uint32_t>(type.member_types.size());
+        const uint32_t member_count = static_cast<uint32_t>(type.member_types.size());
         if (member_count > 0)
         {
             for (uint32_t mi = 0; mi < member_count; ++mi)
             {
-                std::string raw_name = compiler->get_member_name(type.self, mi);
-                std::string deco = compiler->get_member_decoration_string(
-                    type.self, mi, spv::DecorationHlslSemanticGOOGLE);
-                auto& member_type = compiler->get_type(type.member_types[mi]);
-                uint32_t location = compiler->get_member_decoration(type.self, mi, spv::DecorationLocation);
-                if (is_hlsl && !deco.empty())
-                    write_one_decorated(raw_name, mi, member_type, location, deco);
-                else
-                    write_one(raw_name, mi, member_type, location);
+                const std::string name = compiler->get_member_name(type.self, mi);
+                const std::string semantic = is_hlsl
+                    ? compiler->get_member_decoration_string(type.self, mi, spv::DecorationHlslSemanticGOOGLE)
+                    : std::string{};
+
+                const auto& member_type = compiler->get_type(type.member_types[mi]);
+                const uint32_t location = compiler->get_member_decoration(type.self, mi, spv::DecorationLocation);
+
+                write_one(name, member_type, location, semantic);
             }
         }
         else
         {
-            std::string raw_name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
-            std::string deco = compiler->get_decoration_string(
-                resource.id, spv::DecorationHlslSemanticGOOGLE);
-            uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
-            if (is_hlsl && !deco.empty())
-                write_one_decorated(raw_name, 0, type, location, deco);
-            else
-                write_one(raw_name, 0, type, location);
+            const std::string name = resource.name.empty()
+                ? compiler->get_fallback_name(resource.id)
+                : resource.name;
+
+            const std::string semantic = is_hlsl
+                ? compiler->get_decoration_string(resource.id, spv::DecorationHlslSemanticGOOGLE)
+                : std::string{};
+
+            const uint32_t location = compiler->get_decoration(resource.id, spv::DecorationLocation);
+
+            write_one(name, type, location, semantic);
         }
     };
 

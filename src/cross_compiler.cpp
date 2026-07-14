@@ -111,14 +111,29 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
 
         auto resources = compiler->get_shader_resources();
         const auto model = compiler->get_execution_model();
+
+        const auto require_semantic = [&](std::string_view semantic, std::string_view input_name) {
+            if (semantic.empty())
+            {
+                throw std::runtime_error(fmt::format(
+                    "missing HLSL semantic for vertex input '{}' when emitting HLSL target",
+                    input_name));
+            }
+
+            return utils::parse_semantic(semantic);
+        };
+
         if (model == spv::ExecutionModelVertex) {
             for (const auto& r : resources.stage_inputs) {
                 auto& type = compiler->get_type(r.type_id);
                 uint32_t base_loc = compiler->get_decoration(r.id, spv::DecorationLocation);
                 auto sem = compiler->get_decoration_string(r.id, spv::DecorationHlslSemanticGOOGLE);
+                auto input_name = compiler->get_name(r.id);
+                if (input_name.empty())
+                    input_name = compiler->get_fallback_name(r.id);
 
                 if (type.columns > 1 && type.columns <= 4) {
-                    auto [name, idx] = utils::split_semantic(sem, base_loc);
+                    auto [name, idx] = require_semantic(sem, input_name);
                     for (uint32_t col = 0; col < type.columns; ++col)
                         hlsl->add_vertex_attribute_remap({
                             base_loc + col,
@@ -136,14 +151,15 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                             all_same_float4 = false;
                             break;
                         }
+
                         auto msem = compiler->get_member_decoration_string(
                             type.self, mi, spv::DecorationHlslSemanticGOOGLE);
                         if (mi > 0 && !msem.empty())
                             any_extra_sem = true;
-                        if (mi == 0) {
-                            uint32_t mloc = compiler->get_member_decoration(
-                                type.self, 0, spv::DecorationLocation);
-                            std::tie(base_name, base_idx) = utils::split_semantic(msem, mloc);
+                        if (mi == 0)
+                        {
+                            auto member_name = compiler->get_member_name(type.self, mi);
+                            std::tie(base_name, base_idx) = require_semantic(msem, member_name);
                         }
                     }
 
@@ -162,18 +178,19 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
                                 type.self, mi, spv::DecorationLocation);
                             auto msem = compiler->get_member_decoration_string(
                                 type.self, mi, spv::DecorationHlslSemanticGOOGLE);
+                            auto member_name = compiler->get_member_name(type.self, mi);
+                            auto [name, idx] = require_semantic(msem, member_name);
                             hlsl->add_vertex_attribute_remap({
                                 loc,
-                                fmt::format("{}{}", utils::split_semantic(msem, loc).first,
-                                    utils::split_semantic(msem, loc).second)
+                                fmt::format("{}{}", name, idx)
                             });
                         }
                     }
                 } else {
+                    auto [name, idx] = require_semantic(sem, input_name);
                     hlsl->add_vertex_attribute_remap({
                         base_loc,
-                        fmt::format("{}{}", utils::split_semantic(sem, base_loc).first,
-                            utils::split_semantic(sem, base_loc).second)
+                        fmt::format("{}{}", name, idx)
                     });
                 }
             }

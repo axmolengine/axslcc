@@ -101,9 +101,13 @@ void Compiler::compile(const Options& options)
 
                 if (target.profile <= 51)
                 {
+#ifdef _WIN32
                     auto fxcResult = fxc::compile_hlsl(hlslSource, stage, options.include_dirs, all_defines,
                                                        target.profile, options.opt_level, options.input);
                     blob.data      = std::move(fxcResult.dxbc);
+#else
+                    throw std::runtime_error("axslcc: fxc not available on non-windows platforms");
+#endif
                 }
                 else
                 {

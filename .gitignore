@@ -30,3 +30,6 @@ install
 tmp
 cache
 _x
+
+*.patch
+*.diff
