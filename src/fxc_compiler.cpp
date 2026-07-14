@@ -80,8 +80,8 @@ FxcResult compile_hlsl(std::string_view hlsl, const Options& options, const Targ
     for (const auto& def : target.defines)
     {
         auto eq = def.find('=');
-        std::string name = def.substr(0, eq);
-        std::string value = (eq != std::string_view::npos) ? def.substr(eq + 1) : "1";
+        std::string name(def.substr(0, eq));
+        std::string value((eq != std::string_view::npos) ? def.substr(eq + 1) : "1");
         macros.push_back({_strdup(name.c_str()), _strdup(value.c_str())});
     }
     macros.push_back({nullptr, nullptr});
