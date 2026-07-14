@@ -74,44 +74,40 @@ static const char* profile_for_stage(ShaderStage stage, int sm)
 
 } // namespace
 
-FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
-                        const std::vector<fs::path>& includeDirs,
-                        const std::vector<std::string>& defines,
-                        int profile, int opt_level,
-                        const fs::path& sourceName)
+FxcResult compile_hlsl(std::string_view hlsl, const Options& options, const Target& target)
 {
     std::vector<D3D_SHADER_MACRO> macros;
-    for (const auto& def : defines)
+    for (const auto& def : target.defines)
     {
         auto eq = def.find('=');
         std::string name = def.substr(0, eq);
-        std::string value = (eq != std::string::npos) ? def.substr(eq + 1) : "1";
+        std::string value = (eq != std::string_view::npos) ? def.substr(eq + 1) : "1";
         macros.push_back({_strdup(name.c_str()), _strdup(value.c_str())});
     }
     macros.push_back({nullptr, nullptr});
 
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
-    switch (opt_level) {
+    switch (options.opt_level) {
     case 0: flags |= D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG; break;
     case 1: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL1; break;
     case 2: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL2; break;
     case 3: flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3; break;
     }
 
-    DirIncludeHandler includeHandler(includeDirs, sourceName);
+    DirIncludeHandler includeHandler(options.include_dirs, options.input);
 
     ID3DBlob* blob = nullptr;
     ID3DBlob* errorBlob = nullptr;
 
-    std::string srcName = sourceName.empty() ? "shader.hlsl" : sourceName.string();
+    std::string srcName = options.input.empty() ? "shader.hlsl" : options.input.string();
 
     HRESULT hr = D3DCompile(
-        hlsl.data(), hlsl.size(),
+        hlsl.data(), static_cast<SIZE_T>(hlsl.size()),
         srcName.c_str(),
         macros.data(),
         &includeHandler,
         "main",
-        profile_for_stage(stage, profile),
+        profile_for_stage(options.stage, target.profile),
         flags, 0,
         &blob, &errorBlob);
 
@@ -134,8 +130,7 @@ FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
         errorBlob->Release();
 
     FxcResult out;
-    out.dxbc.assign((uint8_t*)blob->GetBufferPointer(),
-                     (uint8_t*)blob->GetBufferPointer() + blob->GetBufferSize());
+    out.dxbc.assign((const char*)blob->GetBufferPointer(), blob->GetBufferSize());
     blob->Release();
 
     return out;

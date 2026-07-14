@@ -4,8 +4,9 @@
 
 #include "types.h"
 
-#include <vector>
 #include <cstdint>
+#include <string_view>
+#include <vector>
 
 struct ID3D11ShaderReflection;
 
@@ -14,16 +15,12 @@ namespace axslcc::fxc
 
 struct FxcResult
 {
-    tlx::byte_buffer dxbc;
+    std::string dxbc;
 };
 
 // Compile in-memory HLSL source to DXBC (SM 5.0 / 5.1)
 // profile: 50 for SM 5.0, 51 for SM 5.1
-FxcResult compile_hlsl(const std::string& hlsl, ShaderStage stage,
-                        const std::vector<fs::path>& includeDirs,
-                        const std::vector<std::string>& defines,
-                        int profile, int opt_level,
-                        const fs::path& sourceName = {});
+FxcResult compile_hlsl(std::string_view hlsl, const Options& options, const Target& target);
 
 } // namespace axslcc::fxc
 

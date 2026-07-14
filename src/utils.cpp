@@ -76,24 +76,34 @@ void print_version()
               << "Axslcc suite maintiained and supported by axmol community (axmol.dev)\n";
 }
 
-static void fill_builtin_target_defines(std::vector<Target>& targets)
+static void resolve_target_defines(std::vector<Target>& targets, const Options& options)
 {
     for (auto& t : targets) {
+        t.defines.clear();
+        t.defines.reserve(options.defines.size() + 3);
+        for (const auto& d : options.defines)
+            t.defines.push_back(d);
         switch (t.lang) {
         case axslc::SHADER_LANG_HLSL:
-            t.defines = {"AXSLC_TARGET_HLSL=1", "AXSLC_UV_TOP=1"};
+            t.defines.emplace_back("AXSLC_TARGET_HLSL=1");
+            t.defines.emplace_back("AXSLC_UV_TOP=1");
             break;
         case axslc::SHADER_LANG_MSL:
-            t.defines = {"AXSLC_TARGET_MSL=1", "AXSLC_UV_TOP=1"};
+            t.defines.emplace_back("AXSLC_TARGET_MSL=1");
+            t.defines.emplace_back("AXSLC_UV_TOP=1");
             break;
         case axslc::SHADER_LANG_SPIRV:
-            t.defines = {"AXSLC_TARGET_SPIRV=1", "AXSLC_UV_TOP=1"};
+            t.defines.emplace_back("AXSLC_TARGET_SPIRV=1");
+            t.defines.emplace_back("AXSLC_UV_TOP=1");
             break;
         case axslc::SHADER_LANG_ESSL:
-            t.defines = {"AXSLC_TARGET_GLSL=1", "AXSLC_UV_TOP=0", "AXSLC_TARGET_ESSL=1"};
+            t.defines.emplace_back("AXSLC_TARGET_GLSL=1");
+            t.defines.emplace_back("AXSLC_UV_TOP=0");
+            t.defines.emplace_back("AXSLC_TARGET_ESSL=1");
             break;
         case axslc::SHADER_LANG_GLSL:
-            t.defines = {"AXSLC_TARGET_GLSL=1", "AXSLC_UV_TOP=0"};
+            t.defines.emplace_back("AXSLC_TARGET_GLSL=1");
+            t.defines.emplace_back("AXSLC_UV_TOP=0");
             break;
         default:
             break;
@@ -276,7 +286,7 @@ Options parse_args(int argc, char** argv)
     if (options.output.empty())
         options.output = options.input.parent_path() / options.input.stem();
 
-    fill_builtin_target_defines(options.targets);
+    resolve_target_defines(options.targets, options);
 
     return options;
 }
@@ -291,7 +301,7 @@ std::string read_text_file(const fs::path& path)
     return ss.str();
 }
 
-void write_file(const fs::path& path, const tlx::byte_buffer& data)
+void write_file(const fs::path& path, std::string_view data)
 {
     if (!path.parent_path().empty())
         fs::create_directories(path.parent_path());
@@ -299,7 +309,7 @@ void write_file(const fs::path& path, const tlx::byte_buffer& data)
     std::ofstream out(path, std::ios::binary);
     if (!out)
         throw std::runtime_error(fmt::format("failed to open output: {}", path.string()));
-    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    out.write(data.data(), static_cast<std::streamsize>(data.size()));
 }
 
 ShaderInfo classify(const fs::path& input)

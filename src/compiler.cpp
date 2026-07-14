@@ -72,8 +72,8 @@ void Compiler::compile(const Options& options)
                 "--hlsl-frontend glslang cannot emit Vulkan separate samplers; use DXC or --vulkan-samplers combined");
         }
 
-        OutputBlob blob;
-        blob.target = target;
+    OutputBlob blob;
+    blob.target = &target;
 
         // Unified binary path: HLSL -> glslang -> SPIR-V -> SPIRV-Cross -> clean HLSL -> DXC/FXC -> binary
         // SPIRV-Cross strips [[vk::builtin(...)]] annotations that DXC/FXC don't recognize
@@ -93,17 +93,12 @@ void Compiler::compile(const Options& options)
         {  // D3D HLSL bytecode or SPIR-V binary
             if (target.lang == axslc::SHADER_LANG_HLSL)
             {
-                auto crossBlob = cross::cross_compile(target, unit.spirv, options);
-                std::string hlslSource(reinterpret_cast<const char*>(crossBlob.data.data()), crossBlob.data.size());
-
-                auto all_defines = options.defines;
-                all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
+                auto hlslSource = cross::cross_compile(target, unit.spirv, options);
 
                 if (target.profile <= 51)
                 {
 #ifdef _WIN32
-                    auto fxcResult = fxc::compile_hlsl(hlslSource, stage, options.include_dirs, all_defines,
-                                                       target.profile, options.opt_level, options.input);
+                    auto fxcResult = fxc::compile_hlsl(hlslSource, options, target);
                     blob.data      = std::move(fxcResult.dxbc);
 #else
                     throw std::runtime_error("axslcc: fxc not available on non-windows platforms");
@@ -111,8 +106,7 @@ void Compiler::compile(const Options& options)
                 }
                 else
                 {
-                    auto dxcResult = dxc::compile_source(hlslSource, stage, options.include_dirs, all_defines,
-                                                         target.profile, options.opt_level, options.input);
+                    auto dxcResult = dxc::compile_source(hlslSource, options, target);
                     blob.data      = std::move(dxcResult.object);
                 }
 
@@ -169,11 +163,7 @@ void Compiler::compile(const Options& options)
 
                 // Step 2: Cross-compile to Vulkan GLSL
                 Target glslTarget{axslc::SHADER_LANG_GLSL, 450, "glsl-450"};
-                auto glslOutput = cross::cross_compile(glslTarget, unit.spirv, options);
-                auto glslSize   = glslOutput.data.size();
-                while (glslSize > 0 && glslOutput.data[glslSize - 1] == 0)
-                    --glslSize;
-                std::string glslSource(reinterpret_cast<const char*>(glslOutput.data.data()), glslSize);
+                auto glslSource = cross::cross_compile(glslTarget, unit.spirv, options);
 
                 // Step 3: Post-process GLSL - prepend layout(binding=, set=) to combined sampler2D
                 for (const auto& [name, info] : bindInfo)
@@ -210,13 +200,13 @@ void Compiler::compile(const Options& options)
 
                 auto runtimeSpirv = spirv::make_vulkan_runtime_spirv(combinedSpirv);
                 blob.data         = spirv::spirv_to_bytes(runtimeSpirv);
-                blob.target       = target;
+                blob.target       = &target;
             }
         }
         else
         {  // Keep source text (GLSL, ESSL, MSL, or HLSL with -S)
             std::vector<UniformBlockNameOverride> uniformBlockNames;
-            blob = cross::cross_compile(target, unit.spirv, options, &uniformBlockNames);
+            blob.data = cross::cross_compile(target, unit.spirv, options, &uniformBlockNames);
 
             if (options.archive)
                 reflections.push_back(
@@ -233,7 +223,7 @@ void Compiler::compile(const Options& options)
     else
     {
         for (const auto& output : outputs)
-            utils::write_file(utils::output_path_for_target(options, output.target), output.data);
+            utils::write_file(utils::output_path_for_target(options, *output.target), output.data);
     }
 }
 

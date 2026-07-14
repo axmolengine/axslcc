@@ -152,13 +152,9 @@ const wchar_t* profile_for_stage(ShaderStage stage, bool spirv, int sm)
     return L"vs_6_0";
 }
 
-DxcResult compile_impl(const std::string& hlsl,
-                       ShaderStage stage,
-                       const std::vector<fs::path>& includeDirs,
-                       const std::vector<std::string>& defines,
-                       int profile,
-                       int optLevel,
-                       const fs::path& sourceName,
+DxcResult compile_impl(std::string_view hlsl,
+                       const Options& options,
+                       const Target& target,
                        bool spirv,
                        bool separateSamplerBindings)
 {
@@ -176,13 +172,13 @@ DxcResult compile_impl(const std::string& hlsl,
     source.Encoding = DXC_CP_UTF8;
 
     std::vector<std::wstring> storage;
-    storage.reserve(16 + includeDirs.size() * 2 + defines.size() * 2);
+    storage.reserve(16 + options.include_dirs.size() * 2 + target.defines.size() * 2);
     auto push = [&](std::wstring value) { storage.emplace_back(std::move(value)); };
 
     push(L"-E");
     push(L"main");
     push(L"-T");
-    push(profile_for_stage(stage, spirv, profile));
+    push(profile_for_stage(options.stage, spirv, spirv ? 60 : target.profile));
     push(L"-HV");
     push(L"2021");
     push(L"-Ges");
@@ -202,7 +198,7 @@ DxcResult compile_impl(const std::string& hlsl,
             push(L"all");
         }
     }
-    switch (optLevel)
+    switch (options.opt_level)
     {
     case 0:
         push(L"-Od");
@@ -219,21 +215,21 @@ DxcResult compile_impl(const std::string& hlsl,
     }
 
     std::vector<fs::path> searchDirs;
-    if (!sourceName.empty() && !sourceName.parent_path().empty())
-        searchDirs.push_back(sourceName.parent_path());
-    searchDirs.insert(searchDirs.end(), includeDirs.begin(), includeDirs.end());
+    if (!options.input.empty() && !options.input.parent_path().empty())
+        searchDirs.push_back(options.input.parent_path());
+    searchDirs.insert(searchDirs.end(), options.include_dirs.begin(), options.include_dirs.end());
     for (const auto& dir : searchDirs)
     {
         push(L"-I");
         push(widen_utf8(path_utf8(dir)));
     }
-    for (const auto& define : defines)
+    for (const auto& define : target.defines)
     {
         push(L"-D");
         push(widen_utf8(define));
     }
-    if (!sourceName.empty())
-        push(widen_utf8(path_utf8(sourceName)));
+    if (!options.input.empty())
+        push(widen_utf8(path_utf8(options.input)));
 
     std::vector<LPCWSTR> args;
     args.reserve(storage.size());
@@ -265,34 +261,28 @@ DxcResult compile_impl(const std::string& hlsl,
         !object)
         throw std::runtime_error("DXC did not produce an output object");
 
-    auto* begin = static_cast<const uint8_t*>(object->GetBufferPointer());
+    auto* begin = static_cast<const char*>(object->GetBufferPointer());
     DxcResult output;
-    output.object.assign(begin, begin + object->GetBufferSize());
+    output.object.assign(begin, object->GetBufferSize());
     return output;
 }
 
 }  // namespace
 
-DxcResult compile_source(const std::string& hlsl,
-                         ShaderStage stage,
-                         const std::vector<fs::path>& includeDirs,
-                         const std::vector<std::string>& defines,
-                         int profile,
-                         int optLevel,
-                         const fs::path& sourceName)
+DxcResult compile_source(std::string_view hlsl,
+                         const Options& options,
+                         const Target& target)
 {
-    return compile_impl(hlsl, stage, includeDirs, defines, profile, optLevel, sourceName, false, false);
+    return compile_impl(hlsl, options, target, false, false);
 }
 
-DxcResult compile_spirv(const std::string& hlsl,
-                        ShaderStage stage,
-                        const std::vector<fs::path>& includeDirs,
-                        const std::vector<std::string>& defines,
-                        int optLevel,
-                        bool separateSamplerBindings,
-                        const fs::path& sourceName)
+DxcResult compile_spirv(std::string_view hlsl,
+                        const Options& options,
+                        const Target& target)
 {
-    return compile_impl(hlsl, stage, includeDirs, defines, 60, optLevel, sourceName, true, separateSamplerBindings);
+    bool separateSamplerBindings = target.lang == axslc::SHADER_LANG_SPIRV &&
+        options.vulkan_sampler_mode == VulkanSamplerMode::Separate;
+    return compile_impl(hlsl, options, target, true, separateSamplerBindings);
 }
 
 }  // namespace axslcc::dxc

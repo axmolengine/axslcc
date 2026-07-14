@@ -25,7 +25,7 @@ void print_version();
 // ============= File I/O =============
 
 std::string read_text_file(const fs::path& path);
-void write_file(const fs::path& path, const tlx::byte_buffer& data);
+void write_file(const fs::path& path, std::string_view data);
 
 // ============= Stage & Format Detection =============
 

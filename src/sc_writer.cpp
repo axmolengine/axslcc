@@ -53,14 +53,16 @@ void write_archive(const Options& options,
 
     for (size_t i = 0; i < outputs.size(); ++i) {
         ScTarget item;
-        item.lang = sc_lang(outputs[i].target);
-        item.profile = static_cast<uint32_t>(outputs[i].target.profile);
-        if (!outputs[i].target.isKeepSource(options.keep_source_hint))
+        item.lang = sc_lang(*outputs[i].target);
+        item.profile = static_cast<uint32_t>(outputs[i].target->profile);
+        if (!outputs[i].target->isKeepSource(options.keep_source_hint))
             item.profile |= SC_BYTECODE_FLAG;
         item.stage = sc_stage(stage);
         item.code = outputs[i].data;
-        if (i < reflections.size())
-            item.refl = reflections[i];
+        if (i < reflections.size()) {
+            auto& ref = reflections[i];
+            item.refl.assign(reinterpret_cast<const char*>(ref.data()), ref.size());
+        }
         targets.push_back(std::move(item));
     }
 
@@ -110,7 +112,9 @@ void write_archive(const Options& options,
         std::memcpy(out.data() + entries_offset + i * sizeof(entry), &entry, sizeof(entry));
     }
 
-    utils::write_file(utils::output_path_for_target(options, outputs.front().target), out.buffer());
+    auto buf = out.buffer();
+    utils::write_file(utils::output_path_for_target(options, *outputs.front().target),
+                       std::string_view(reinterpret_cast<const char*>(buf.data()), buf.size()));
 }
 
 } // namespace axslcc::sc_writer

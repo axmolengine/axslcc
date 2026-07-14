@@ -13,7 +13,7 @@ namespace axslcc::spirv
 
 CompileUnit compile_input(const Options& options, const Target& target);
 
-tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv);
+std::string spirv_to_bytes(const std::vector<uint32_t>& spirv);
 
 // Removes non-runtime reflection/debug extensions and validates the module
 // using the statically linked SPIRV-Tools library.

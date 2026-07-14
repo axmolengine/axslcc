@@ -29,13 +29,10 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& tar
 
 } // namespace
 
-OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spirv,
-                         const Options& options,
-                         std::vector<UniformBlockNameOverride>* uniform_block_names)
+std::string cross_compile(const Target& target, const std::vector<uint32_t>& spirv,
+                          const Options& options,
+                          std::vector<UniformBlockNameOverride>* uniform_block_names)
 {
-    if (target.lang == axslc::SHADER_LANG_SPIRV)
-        return OutputBlob{target, spirv::spirv_to_bytes(spirv)};
-
     auto compiler = make_cross_compiler(target, spirv);
     auto spv_options = compiler->get_common_options();
     spv_options.flatten_multidimensional_arrays = true;
@@ -227,9 +224,7 @@ OutputBlob cross_compile(const Target& target, const std::vector<uint32_t>& spir
         }
     }
 
-    tlx::byte_buffer bytes(code.begin(), code.end());
-    bytes.push_back(0); // add null-terminator
-    return OutputBlob{target, std::move(bytes)};
+    return code;
 }
 
 } // namespace axslcc::cross

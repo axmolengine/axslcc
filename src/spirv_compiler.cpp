@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fmt/format.h>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -52,7 +53,7 @@ inline constexpr GlslLocationDefine kLegacyGlslVertexDefines[16] = {
     {"BLENDWEIGHT"sv, 15},
 };
 
-std::string build_preamble(const std::vector<std::string>& defines,
+std::string build_preamble(std::span<const std::string_view> defines,
                            glslang::EShSource source)
 {
     std::string preamble;
@@ -71,8 +72,8 @@ std::string build_preamble(const std::vector<std::string>& defines,
     for (const auto& define : defines) {
         auto eq = define.find('=');
         preamble += "#define ";
-        preamble += eq == std::string::npos ? define : define.substr(0, eq);
-        if (eq != std::string::npos) {
+        preamble += eq == std::string_view::npos ? define : define.substr(0, eq);
+        if (eq != std::string_view::npos) {
             preamble += " ";
             preamble += define.substr(eq + 1);
         }
@@ -81,7 +82,7 @@ std::string build_preamble(const std::vector<std::string>& defines,
     return preamble;
 }
 
-bool compile_to_spirv(const Options& options, const std::vector<std::string>& defines,
+bool compile_to_spirv(const Options& options, std::span<const std::string_view> defines,
     std::string_view source_text, EShLanguage stage,
     glslang::EShSource source, std::vector<uint32_t>& spirv, std::string& log)
 {
@@ -103,9 +104,9 @@ bool compile_to_spirv(const Options& options, const std::vector<std::string>& de
     shader.setAutoMapLocations(true);
 
     std::vector<std::string> processes;
-    for (const auto& define : defines) {
+        for (const auto& define : defines) {
         auto eq = define.find('=');
-        processes.push_back("D" + (eq == std::string::npos ? define : define.substr(0, eq)));
+        processes.push_back(fmt::format("D{}", eq == std::string_view::npos ? define : define.substr(0, eq)));
     }
     shader.addProcesses(processes);
 
@@ -214,16 +215,9 @@ CompileUnit compile_input(const Options& options, const Target& target)
         break;
     }
 
-    auto all_defines = options.defines;
-    all_defines.insert(all_defines.end(), target.defines.begin(), target.defines.end());
-
     if (options.input_lang == InputLang::HLSL && options.hlsl_frontend == HlslFrontend::DXC)
     {
-        auto result = dxc::compile_spirv(source_text, options.stage, options.include_dirs,
-                                         all_defines, options.opt_level,
-                                         target.lang == axslc::SHADER_LANG_SPIRV &&
-                                             options.vulkan_sampler_mode == VulkanSamplerMode::Separate,
-                                         options.input);
+        auto result = dxc::compile_spirv(source_text, options, target);
         if (result.object.size() % sizeof(uint32_t) != 0)
             throw std::runtime_error("DXC produced a malformed SPIR-V object");
 
@@ -249,7 +243,7 @@ CompileUnit compile_input(const Options& options, const Target& target)
     for (EShLanguage stage : candidates) {
         std::vector<uint32_t> spirv;
         std::string log;
-        if (compile_to_spirv(options, all_defines, source_text, stage, source, spirv, log)) {
+        if (compile_to_spirv(options, target.defines, source_text, stage, source, spirv, log)) {
             CompileUnit unit;
             switch (stage) {
             case EShLangVertex:
@@ -364,10 +358,13 @@ bool compile_glsl_to_spirv(std::string_view source_text, ShaderStage stage,
     return !spirv.empty();
 }
 
-tlx::byte_buffer spirv_to_bytes(const std::vector<uint32_t>& spirv)
+std::string spirv_to_bytes(const std::vector<uint32_t>& spirv)
 {
-    tlx::byte_buffer bytes(spirv.size() * sizeof(uint32_t));
-    std::memcpy(bytes.data(), spirv.data(), bytes.size());
+    std::string bytes;
+    bytes.resize_and_overwrite(spirv.size() * sizeof(uint32_t), [&](char* buf, size_t n) {
+        std::memcpy(buf, spirv.data(), n);
+        return n;
+    });
     return bytes;
 }
 

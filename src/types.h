@@ -5,9 +5,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "yasio/tlx/byte_buffer.hpp"
+#include "yasio/tlx/byte_buffer.hpp"  // reflection still uses this
 
 namespace fs = std::filesystem;
 
@@ -54,7 +55,7 @@ struct Target
     axslc::ShaderLang lang = axslc::SHADER_LANG_GLSL;
     int profile = 0;
     std::string spec;
-    std::vector<std::string> defines;  // per-target builtin preprocessor defines
+    std::vector<std::string_view> defines;  // options.defines + per-target builtin defines merged during setup
 
     // Decide whether this target's code is emitted as source text (HLSL/GLSL/MSL) rather
     // than as a binary blob (D3D bytecode or SPIR-V). The result depends on the shader
@@ -106,8 +107,8 @@ struct CompileUnit
 
 struct OutputBlob
 {
-    Target target;
-    tlx::byte_buffer data;
+    const Target* target = nullptr;
+    std::string data;
 };
 
 struct UniformBlockNameOverride
@@ -123,8 +124,8 @@ struct ScTarget
     uint32_t profile = 0;
     uint32_t offset = 0;
     uint32_t stage = 0;
-    tlx::byte_buffer code;
-    tlx::byte_buffer refl;
+    std::string code;
+    std::string refl;
 };
 
 struct VariableTypeMap
