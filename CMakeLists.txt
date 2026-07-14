@@ -64,7 +64,7 @@ if(ENABLE_HLSL)
 endif(ENABLE_HLSL)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 
 if (MSVC)
   remove_definitions(-D_MBCS)
