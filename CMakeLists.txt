@@ -141,6 +141,8 @@ if(WIN32)
     )
 endif()
 
+add_subdirectory(3rdparty/fmt)
+
 add_executable(axslcc ${axslcc_SOURCES})
 target_link_libraries(axslcc PRIVATE
     glslang::glslang
@@ -150,6 +152,7 @@ target_link_libraries(axslcc PRIVATE
     spirv-cross-glsl
     spirv-cross-hlsl
     spirv-cross-msl
+    fmt-header-only
 )
 
 target_include_directories(axslcc PRIVATE 3rdparty/yasio)
