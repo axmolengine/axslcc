@@ -225,13 +225,6 @@ uint32_t resource_array_count(std::string_view arraySuffix, std::string_view nam
     return static_cast<uint32_t>(count);
 }
 
-uint32_t sampler_space_for_target(const Options& options, const Target& target)
-{
-    (void)options;
-    (void)target;
-    return 1u;
-}
-
 int32_t find_builtin_sampler_preset(std::string_view name)
 {
     static constexpr std::string_view kPresetNames[] = {
@@ -263,7 +256,7 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
 
     if (options.stage == ShaderStage::Fragment)
         alloc.cbv = 1;
-    const uint32_t samplerSpace = sampler_space_for_target(options, target);
+    uint32_t customSamplerIndex = 0;
 
     auto apply_regex = [](std::string text, const std::regex& pattern, auto&& replacer) {
         std::string result;
@@ -305,14 +298,23 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
         if (type.find("Sampler") != std::string::npos)
         {
             regClass = 's';
-            space = samplerSpace;
 
             auto presetIdx = find_builtin_sampler_preset(name);
-            if (presetIdx < 0)
-                throw std::runtime_error(
-                    "Custom sampler '" + name + "' is not supported yet.\n"
-                    "Use a built-in Axmol sampler name.");
-            binding = static_cast<uint32_t>(presetIdx);
+            if (presetIdx >= 0)
+            {
+                space   = static_cast<uint32_t>(axslc::kPresetSamplerDescriptorSet);
+                binding = static_cast<uint32_t>(presetIdx);
+            }
+            else
+            {
+                if (count > 1)
+                    throw std::runtime_error(
+                        "Custom sampler array '" + name +
+                        "' is not supported. Custom samplers must be non-array (count = 1).");
+                space   = static_cast<uint32_t>(axslc::kCustomSamplerDescriptorSet);
+                binding = customSamplerIndex;
+                customSamplerIndex += count;
+            }
         }
         else if (type.rfind("RW", 0) == 0)
         {

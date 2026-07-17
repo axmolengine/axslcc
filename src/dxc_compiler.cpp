@@ -191,9 +191,8 @@ DxcResult compile_impl(std::string_view hlsl,
         push(L"-fspv-reflect");
         if (separateSamplerBindings)
         {
-            // HLSL register classes share Vulkan's binding namespace within
-            // one descriptor set. Keep samplers in set 1 and shift s# away
-            // from t# so set 2 remains reserved for future Axmol use.
+            // Shift samplers away from texture slots in both set 1 (presets) and set 2 (custom).
+            // Presets: set1, binding=1024+presetIndex. Custom: set2, binding=1024+localIndex.
             push(L"-fvk-s-shift");
             push(L"1024");
             push(L"all");

@@ -29,7 +29,7 @@ struct SamplerAbiInfo
 {
     std::string name;
     int32_t reflected_binding{-1};
-    uint16_t descriptor_set{0};
+    uint16_t space{0};
 };
 
 constexpr VariableTypeMap kVariableTypeMap[] = {
@@ -218,7 +218,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             throw std::runtime_error("Sampler '" + abi.name + "' was not assigned a backend binding by axslcc.");
 
         abi.reflected_binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
-        abi.descriptor_set = compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+        abi.space = compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
             ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0u;
 
         sampler_abi_by_id.emplace(resource.id, std::move(abi));
@@ -410,9 +410,8 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             const auto& abi = sampler_abi_by_id.at(resource.id);
             copy_name(sampler.name, sizeof(sampler.name), abi.name);
             sampler.binding        = abi.reflected_binding;
-            sampler.descriptor_set = abi.descriptor_set;
+            sampler.space          = abi.space;
             sampler.count          = array_size(type);
-            sampler.comparison     = type.basetype == spirv_cross::SPIRType::Sampler && type.image.depth ? 1 : 0;
 
             static constexpr std::string_view kPresetNames[] = {
                 "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
@@ -422,13 +421,53 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
                 "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
                 "LinearNoMipClamp", "PointNoMipClamp",
             };
-            sampler.preset_index = -1;
+            sampler.preset_index = axslc::kInvalidSamplerPreset;
             for (size_t i = 0; i < std::size(kPresetNames); ++i) {
-                if (kPresetNames[i] == abi.name) {
+                if (abi.space == axslc::kPresetSamplerDescriptorSet && kPresetNames[i] == abi.name) {
                     sampler.preset_index = static_cast<int16_t>(i);
                     break;
                 }
             }
+            sampler.flags    = axslc::SC_SAMPLER_FLAG_NONE;
+            sampler.reserved = 0;
+
+            write_struct(out, sampler);
+            ++header.num_samplers;
+        }
+    } else {
+        // For GL/GLES targets, write custom sampler entries (not built-in presets)
+        // so the runtime can bind the correct native sampler objects.
+        // Built-in presets use the default combined-image-sampler path.
+        for (const auto& resource : pre_resources.separate_samplers) {
+            const auto& abi = sampler_abi_by_id.at(resource.id);
+
+            static constexpr std::string_view kPresetNames[] = {
+                "LinearClamp", "LinearWrap", "LinearMirror", "LinearBorder",
+                "PointClamp", "PointWrap", "PointMirror", "PointBorder",
+                "LinearMipClamp", "LinearMipWrap", "LinearMipMirror", "LinearMipBorder",
+                "AnisoClamp", "AnisoWrap", "AnisoMirror", "AnisoBorder",
+                "ShadowCmpClamp", "ShadowCmpWrap", "ShadowCmpMirror", "ShadowCmpBorder",
+                "LinearNoMipClamp", "PointNoMipClamp",
+            };
+            int16_t presetIdx = axslc::kInvalidSamplerPreset;
+            for (size_t i = 0; i < std::size(kPresetNames); ++i) {
+                if (abi.space == axslc::kPresetSamplerDescriptorSet && kPresetNames[i] == abi.name) {
+                    presetIdx = static_cast<int16_t>(i);
+                    break;
+                }
+            }
+            if (presetIdx >= 0)
+                continue;  // skip built-in presets for GL/GLES
+
+            auto& type = compiler->get_type(resource.type_id);
+            axslc::sc_refl_sampler sampler{};
+            copy_name(sampler.name, sizeof(sampler.name), abi.name);
+            sampler.binding     = abi.reflected_binding;
+            sampler.space       = abi.space;
+            sampler.count       = array_size(type);
+            sampler.preset_index = axslc::kInvalidSamplerPreset;
+            sampler.flags       = axslc::SC_SAMPLER_FLAG_NONE;
+            sampler.reserved    = 0;
 
             write_struct(out, sampler);
             ++header.num_samplers;
