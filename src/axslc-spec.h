@@ -1,4 +1,27 @@
-// The Axmol Shader Compiler spec, define macros and structs
+/****************************************************************************
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
+
+ https://axmol.dev/
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ ****************************************************************************/
+// Axmol Shader Compiler Spec: Macro and Struct Definitions (Inspired by glslcc)
 // match with axslcc-3.99.0+
 
 #pragma once
@@ -77,6 +100,9 @@ struct SamplerPreset
 };
 inline constexpr uint16_t kPresetSamplerDescriptorSet = 1;
 inline constexpr uint16_t kCustomSamplerDescriptorSet = 2;
+inline constexpr uint16_t kInvalidTextureSamplerRef = 0xffff;
+inline constexpr uint16_t kTextureSamplerRefCustomBit = 0x8000;
+inline constexpr uint16_t kTextureSamplerRefBindingMask = 0x7fff;
 
 inline constexpr int16_t kInvalidSamplerPreset = -1;
 
@@ -187,7 +213,12 @@ struct sc_refl_texture
     uint8_t arrayed : 1;      // whether samplerXXArray
     uint8_t reserved : 6;     // reserved field
     uint16_t count;
-    uint16_t reserved2;
+
+    // GL/GLES only: sampler reference used by this combined texture uniform.
+    //   kInvalidTextureSamplerRef: use the texture object's/default sampler.
+    //   [0, 0x7fff]: built-in preset sampler binding.
+    //   kTextureSamplerRefCustomBit | binding: custom sampler binding.
+    uint16_t sampler_ref;
 };
 
 enum SCSamplerFlags : uint8_t

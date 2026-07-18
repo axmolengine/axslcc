@@ -1,3 +1,26 @@
+/****************************************************************************
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
+
+ https://axmol.dev/
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ ****************************************************************************/
 #include "utils.h"
 #include "version.h"
 
@@ -127,6 +150,35 @@ Target parse_target(std::string_view text)
         {"gles",  axslc::SHADER_LANG_ESSL,  300},
     };
 
+    auto parse_profile = [text](std::string_view value) -> int {
+        if (value.empty())
+            throw std::runtime_error(fmt::format("unsupported target '{}'", text));
+
+        int profile = 0;
+        auto* begin = value.data();
+        auto* end = value.data() + value.size();
+        auto [ptr, ec] = std::from_chars(begin, end, profile);
+        if (ec != std::errc{} || ptr != end)
+            throw std::runtime_error(fmt::format("unsupported target '{}'", text));
+        return profile;
+    };
+
+    auto profile_supported = [](std::string_view platform, int profile) {
+        if (platform == "d3d11")
+            return profile == 50;
+        if (platform == "d3d12")
+            return profile == 51 || profile == 60;
+        if (platform == "vk")
+            return profile == 100;
+        if (platform == "mtl")
+            return profile >= 10000;
+        if (platform == "gl")
+            return profile == 330 || profile == 450;
+        if (platform == "gles")
+            return profile == 300;
+        return false;
+    };
+
     // New-style: platform[-version]
     auto dash = text.find('-');
     std::string_view platform = (dash != std::string_view::npos) ? text.substr(0, dash) : text;
@@ -140,9 +192,12 @@ Target parse_target(std::string_view text)
             target.spec = std::string(text);
 
             if (dash != std::string_view::npos)
-                target.profile = std::stoi(std::string(text.substr(dash + 1)));
+                target.profile = parse_profile(text.substr(dash + 1));
             else
                 target.profile = entry.defaultProfile;
+
+            if (!profile_supported(platform, target.profile))
+                throw std::runtime_error(fmt::format("unsupported target '{}'", text));
 
             return target;
         }
@@ -153,7 +208,7 @@ Target parse_target(std::string_view text)
         throw std::runtime_error(fmt::format("unsupported target '{}'", text));
 
     std::string lang = lower(std::string(text.substr(0, dash)));
-    int profile = std::stoi(std::string(text.substr(dash + 1)));
+    int profile = parse_profile(text.substr(dash + 1));
 
     Target target;
     target.profile = profile;
@@ -310,6 +365,9 @@ void write_file(const fs::path& path, std::string_view data)
     if (!out)
         throw std::runtime_error(fmt::format("failed to open output: {}", path.string()));
     out.write(data.data(), static_cast<std::streamsize>(data.size()));
+    out.close();
+    if (!out)
+        throw std::runtime_error(fmt::format("failed to write output: {}", path.string()));
 }
 
 ShaderInfo classify(const fs::path& input)

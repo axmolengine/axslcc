@@ -1,3 +1,26 @@
+/****************************************************************************
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
+
+ https://axmol.dev/
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ ****************************************************************************/
 #include "spirv_compiler.h"
 #include "dxc_compiler.h"
 #include "utils.h"
@@ -219,7 +242,7 @@ uint32_t resource_array_count(std::string_view arraySuffix, std::string_view nam
     for (char ch : value)
         count = count * 10 + static_cast<uint64_t>(ch - '0');
 
-    if (count == 0 || count > std::numeric_limits<uint32_t>::max())
+    if (count == 0 || count > (std::numeric_limits<uint32_t>::max)())
         throw std::runtime_error("Resource array '" + std::string(name) + "' has an invalid size.");
 
     return static_cast<uint32_t>(count);
@@ -280,6 +303,16 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
         return match.str(1) + " " + match.str(2) + " : register(b" + std::to_string(binding) + ", space0) " +
                match.str(3);
     });
+
+    static const std::regex kUnsupportedResourcePattern(
+        R"(\b(ConstantBuffer\s*<[^;{}>]+>|Texture2DMS(?:Array)?(?:\s*<[^;{}>]+>)?|(?:Append|Consume)StructuredBuffer\s*<[^;{}>]+>|RasterizerOrdered(?:Texture(?:1D|2D|3D)(?:Array)?|Buffer|StructuredBuffer|ByteAddressBuffer)(?:\s*<[^;{}>]+>)?)\s+([A-Za-z_]\w*)\s*(\[[^\]]+\])?\s*;)",
+        std::regex_constants::optimize);
+    for (std::sregex_iterator it(source.begin(), source.end(), kUnsupportedResourcePattern), end; it != end; ++it)
+    {
+        throw std::runtime_error(
+            "HLSL resource type '" + (*it).str(1) + "' used by '" + (*it).str(2) +
+            "' is not supported by the Axmol shader ABI yet.");
+    }
 
     static const std::regex kResourcePattern(
         R"(\b((?:RW)?Texture(?:1D|2D|3D|Cube)(?:Array)?(?:\s*<[^;{}>]+>)?|(?:RW)?(?:StructuredBuffer|ByteAddressBuffer)(?:\s*<[^;{}>]+>)?|(?:RW)?Buffer(?:\s*<[^;{}>]+>)?|Sampler(?:Comparison)?State)\s+([A-Za-z_]\w*)\s*(\[[^\]]+\])?\s*;)",

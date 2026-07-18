@@ -1,3 +1,26 @@
+/****************************************************************************
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
+
+ https://axmol.dev/
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ ****************************************************************************/
 #include "compiler.h"
 #include "spirv_compiler.h"
 #include "cross_compiler.h"
@@ -16,6 +39,7 @@
 
 #include <fmt/format.h>
 #include <iostream>
+#include <unordered_map>
 
 namespace axslcc
 {
@@ -147,11 +171,19 @@ void Compiler::compile(const Options& options)
                 reflCompiler->build_combined_image_samplers();
                 // name -> {set, binding}
                 std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> bindInfo;
+                std::unordered_map<spirv_cross::VariableID, spirv_cross::VariableID> samplerByImage;
                 for (const auto& c : reflCompiler->get_combined_image_samplers())
                 {
                     auto it = imageNameMap.find(c.image_id);
                     if (it == imageNameMap.end())
                         continue;
+                    auto [samplerIt, inserted] = samplerByImage.emplace(c.image_id, c.sampler_id);
+                    if (!inserted && samplerIt->second != c.sampler_id)
+                    {
+                        throw std::runtime_error(
+                            "Vulkan combined sampler mode does not support sampling one texture with multiple sampler states in Axmol: " +
+                            it->second + ". Use --vulkan-samplers separate or use a single sampler for that texture.");
+                    }
                     uint32_t binding     = reflCompiler->has_decoration(c.image_id, spv::DecorationBinding)
                                                ? reflCompiler->get_decoration(c.image_id, spv::DecorationBinding)
                                                : 0;

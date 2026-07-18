@@ -1,3 +1,26 @@
+/****************************************************************************
+ Copyright (c) 2019-present Axmol Engine contributors (see AUTHORS.md).
+
+ https://axmol.dev/
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ ****************************************************************************/
 #include "reflection.h"
 #include "axslc-spec.h"
 
@@ -58,7 +81,9 @@ uint16_t resolve_sc_type(const spirv_cross::SPIRType& type)
         if (item.base_type == static_cast<uint32_t>(type.basetype) && item.vec_size == type.vecsize && item.columns == type.columns)
             return item.sc_type;
     }
-    return axslc::SC_TYPE_FLOAT4;
+    throw std::runtime_error(fmt::format(
+        "unsupported reflected variable type: base={}, vec_size={}, columns={}",
+        static_cast<uint32_t>(type.basetype), type.vecsize, type.columns));
 }
 
 uint16_t array_size(const spirv_cross::SPIRType& type)
@@ -211,6 +236,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     auto pre_resources = compiler->get_shader_resources();
     const bool is_hlsl = utils::is_hlsl_source(input);
     std::unordered_map<uint32_t, SamplerAbiInfo> sampler_abi_by_id;
+    std::unordered_map<uint32_t, uint16_t> texture_sampler_ref_by_id;
     for (const auto& resource : pre_resources.separate_samplers) {
         SamplerAbiInfo abi{};
         abi.name = resource.name.empty() ? compiler->get_fallback_name(resource.id) : resource.name;
@@ -225,36 +251,53 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     }
 
     if (is_glsl_target) {
-        {
-            std::unordered_map<uint32_t, std::string> image_names;
-            for (const auto& image : pre_resources.separate_images)
-                image_names[image.id] = compiler->get_name(image.id);
+        std::unordered_map<uint32_t, std::string> image_names;
+        for (const auto& image : pre_resources.separate_images)
+            image_names[image.id] = compiler->get_name(image.id);
 
-            compiler->build_combined_image_samplers();
+        compiler->build_combined_image_samplers();
 
-            std::unordered_map<uint32_t, uint32_t> sampler_by_image;
-            for (const auto& combined : compiler->get_combined_image_samplers()) {
-                auto [sampler_it, inserted] = sampler_by_image.emplace(combined.image_id, combined.sampler_id);
-                if (!inserted && sampler_it->second != combined.sampler_id) {
-                    const auto image_name = compiler->get_name(combined.image_id);
-                    throw std::runtime_error(
-                        "GLSL/ESSL backend does not support sampling one texture with multiple sampler states in Axmol: " +
-                        image_name + ". Use a single sampler for that texture on GL/GLES targets.");
-                }
-
-                auto it = image_names.find(combined.image_id);
-                if (it != image_names.end() && !it->second.empty())
-                    compiler->set_name(combined.combined_id, it->second);
-
-                const uint32_t binding = compiler->has_decoration(combined.image_id, spv::DecorationBinding)
-                    ? compiler->get_decoration(combined.image_id, spv::DecorationBinding)
-                    : 0;
-                const uint32_t descriptor_set = compiler->has_decoration(combined.image_id, spv::DecorationDescriptorSet)
-                    ? compiler->get_decoration(combined.image_id, spv::DecorationDescriptorSet)
-                    : 0;
-                compiler->set_decoration(combined.combined_id, spv::DecorationBinding, binding);
-                compiler->set_decoration(combined.combined_id, spv::DecorationDescriptorSet, descriptor_set);
+        std::unordered_map<uint32_t, uint32_t> sampler_by_image;
+        for (const auto& combined : compiler->get_combined_image_samplers()) {
+            auto [sampler_it, inserted] = sampler_by_image.emplace(combined.image_id, combined.sampler_id);
+            if (!inserted && sampler_it->second != combined.sampler_id) {
+                const auto image_name = compiler->get_name(combined.image_id);
+                throw std::runtime_error(
+                    "GLSL/ESSL backend does not support sampling one texture with multiple sampler states in Axmol: " +
+                    image_name + ". Use a single sampler for that texture on GL/GLES targets.");
             }
+
+            auto abi_it = sampler_abi_by_id.find(combined.sampler_id);
+            if (abi_it != sampler_abi_by_id.end())
+            {
+                if (abi_it->second.space != axslc::kPresetSamplerDescriptorSet &&
+                    abi_it->second.space != axslc::kCustomSamplerDescriptorSet)
+                    throw std::runtime_error(
+                        "Sampler '" + abi_it->second.name + "' has an unsupported sampler space.");
+
+                if (abi_it->second.reflected_binding < 0 ||
+                    abi_it->second.reflected_binding > axslc::kTextureSamplerRefBindingMask)
+                    throw std::runtime_error(
+                        "Sampler '" + abi_it->second.name + "' has an unsupported GL/GLES sampler binding.");
+
+                auto sampler_ref = static_cast<uint16_t>(abi_it->second.reflected_binding);
+                if (abi_it->second.space == axslc::kCustomSamplerDescriptorSet)
+                    sampler_ref |= axslc::kTextureSamplerRefCustomBit;
+                texture_sampler_ref_by_id[combined.combined_id] = sampler_ref;
+            }
+
+            auto it = image_names.find(combined.image_id);
+            if (it != image_names.end() && !it->second.empty())
+                compiler->set_name(combined.combined_id, it->second);
+
+            const uint32_t binding = compiler->has_decoration(combined.image_id, spv::DecorationBinding)
+                ? compiler->get_decoration(combined.image_id, spv::DecorationBinding)
+                : 0;
+            const uint32_t descriptor_set = compiler->has_decoration(combined.image_id, spv::DecorationDescriptorSet)
+                ? compiler->get_decoration(combined.image_id, spv::DecorationDescriptorSet)
+                : 0;
+            compiler->set_decoration(combined.combined_id, spv::DecorationBinding, binding);
+            compiler->set_decoration(combined.combined_id, spv::DecorationDescriptorSet, descriptor_set);
         }
     }
 
@@ -388,6 +431,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         texture.multisample = type.image.ms ? 1 : 0;
         texture.arrayed = type.image.arrayed ? 1 : 0;
         texture.count = array_size(type);
+        texture.sampler_ref = axslc::kInvalidTextureSamplerRef;
+        if (!storage) {
+            auto sampler_ref_it = texture_sampler_ref_by_id.find(resource.id);
+            if (sampler_ref_it != texture_sampler_ref_by_id.end())
+                texture.sampler_ref = sampler_ref_it->second;
+        }
         write_struct(out, texture);
         if (storage)
             ++header.num_storage_images;
@@ -435,9 +484,8 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             ++header.num_samplers;
         }
     } else {
-        // For GL/GLES targets, write custom sampler entries (not built-in presets)
-        // so the runtime can bind the correct native sampler objects.
-        // Built-in presets use the default combined-image-sampler path.
+        // For GL/GLES targets, write sampler entries so the runtime can bind
+        // the native sampler object that belongs to each combined texture uniform.
         for (const auto& resource : pre_resources.separate_samplers) {
             const auto& abi = sampler_abi_by_id.at(resource.id);
 
@@ -456,8 +504,6 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
                     break;
                 }
             }
-            if (presetIdx >= 0)
-                continue;  // skip built-in presets for GL/GLES
 
             auto& type = compiler->get_type(resource.type_id);
             axslc::sc_refl_sampler sampler{};
