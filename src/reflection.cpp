@@ -55,6 +55,8 @@ struct SamplerAbiInfo
     uint16_t space{0};
 };
 
+constexpr uint32_t kD3D11SamplerSlotCount = 16;
+
 constexpr VariableTypeMap kVariableTypeMap[] = {
     {spirv_cross::SPIRType::Float, 4, 1, axslc::SC_TYPE_FLOAT4},
     {spirv_cross::SPIRType::Float, 3, 1, axslc::SC_TYPE_FLOAT3},
@@ -117,6 +119,55 @@ std::unique_ptr<spirv_cross::CompilerGLSL> make_compiler(const Target& target, c
     if (target.lang == axslc::SHADER_LANG_MSL)
         return std::make_unique<spirv_cross::CompilerMSL>(spirv);
     return std::make_unique<spirv_cross::CompilerGLSL>(spirv);
+}
+
+bool is_d3d11_target(const Target& target)
+{
+    return target.lang == axslc::SHADER_LANG_HLSL && target.profile == 50;
+}
+
+uint32_t get_decoration_or_zero(spirv_cross::CompilerGLSL& compiler, spirv_cross::ID id, spv::Decoration decoration)
+{
+    return compiler.has_decoration(id, decoration) ? compiler.get_decoration(id, decoration) : 0;
+}
+
+uint32_t sampler_array_count(spirv_cross::CompilerGLSL& compiler, const spirv_cross::Resource& sampler)
+{
+    auto& type = compiler.get_type(sampler.type_id);
+    return type.array.empty() ? 1 : type.array.front();
+}
+
+void compact_d3d11_sampler_bindings(spirv_cross::CompilerGLSL& compiler)
+{
+    auto resources = compiler.get_shader_resources();
+    std::vector<spirv_cross::Resource> samplers(resources.separate_samplers.begin(),
+                                                resources.separate_samplers.end());
+
+    std::sort(samplers.begin(), samplers.end(), [&](const auto& a, const auto& b) {
+        const auto a_set = get_decoration_or_zero(compiler, a.id, spv::DecorationDescriptorSet);
+        const auto b_set = get_decoration_or_zero(compiler, b.id, spv::DecorationDescriptorSet);
+        if (a_set != b_set)
+            return a_set < b_set;
+
+        const auto a_binding = get_decoration_or_zero(compiler, a.id, spv::DecorationBinding);
+        const auto b_binding = get_decoration_or_zero(compiler, b.id, spv::DecorationBinding);
+        if (a_binding != b_binding)
+            return a_binding < b_binding;
+
+        return a.name < b.name;
+    });
+
+    uint32_t slot = 0;
+    for (const auto& sampler : samplers)
+    {
+        const auto count = sampler_array_count(compiler, sampler);
+        if (slot + count > kD3D11SamplerSlotCount)
+            throw std::runtime_error(fmt::format("D3D11 supports at most {} active samplers per shader stage",
+                                                 kD3D11SamplerSlotCount));
+
+        compiler.set_decoration(sampler.id, spv::DecorationBinding, slot);
+        slot += count;
+    }
 }
 
 uint32_t align_up(uint32_t value, uint32_t alignment)
@@ -234,6 +285,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     const bool is_glsl_target = target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL;
 
     auto pre_resources = compiler->get_shader_resources();
+    if (is_d3d11_target(target))
+    {
+        compact_d3d11_sampler_bindings(*compiler);
+        pre_resources = compiler->get_shader_resources();
+    }
+
     const bool is_hlsl = utils::is_hlsl_source(input);
     std::unordered_map<uint32_t, SamplerAbiInfo> sampler_abi_by_id;
     std::unordered_map<uint32_t, uint16_t> texture_sampler_ref_by_id;

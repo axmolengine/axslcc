@@ -30,16 +30,70 @@
 #include "spirv_hlsl.hpp"
 #include "spirv_msl.hpp"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <memory>
+#include <stdexcept>
 #include <tuple>
 #include <unordered_map>
+#include <vector>
 
 namespace axslcc::cross
 {
 
 namespace
 {
+
+constexpr uint32_t kD3D11SamplerSlotCount = 16;
+
+bool is_d3d11_target(const Target& target)
+{
+    return target.lang == axslc::SHADER_LANG_HLSL && target.profile == 50;
+}
+
+uint32_t get_decoration_or_zero(spirv_cross::CompilerGLSL& compiler, spirv_cross::ID id, spv::Decoration decoration)
+{
+    return compiler.has_decoration(id, decoration) ? compiler.get_decoration(id, decoration) : 0;
+}
+
+uint32_t sampler_array_count(spirv_cross::CompilerGLSL& compiler, const spirv_cross::Resource& sampler)
+{
+    auto& type = compiler.get_type(sampler.type_id);
+    return type.array.empty() ? 1 : type.array.front();
+}
+
+void compact_d3d11_sampler_bindings(spirv_cross::CompilerGLSL& compiler)
+{
+    auto resources = compiler.get_shader_resources();
+    std::vector<spirv_cross::Resource> samplers(resources.separate_samplers.begin(),
+                                                resources.separate_samplers.end());
+
+    std::sort(samplers.begin(), samplers.end(), [&](const auto& a, const auto& b) {
+        const auto a_set = get_decoration_or_zero(compiler, a.id, spv::DecorationDescriptorSet);
+        const auto b_set = get_decoration_or_zero(compiler, b.id, spv::DecorationDescriptorSet);
+        if (a_set != b_set)
+            return a_set < b_set;
+
+        const auto a_binding = get_decoration_or_zero(compiler, a.id, spv::DecorationBinding);
+        const auto b_binding = get_decoration_or_zero(compiler, b.id, spv::DecorationBinding);
+        if (a_binding != b_binding)
+            return a_binding < b_binding;
+
+        return a.name < b.name;
+    });
+
+    uint32_t slot = 0;
+    for (const auto& sampler : samplers)
+    {
+        const auto count = sampler_array_count(compiler, sampler);
+        if (slot + count > kD3D11SamplerSlotCount)
+            throw std::runtime_error(fmt::format("D3D11 supports at most {} active samplers per shader stage",
+                                                 kD3D11SamplerSlotCount));
+
+        compiler.set_decoration(sampler.id, spv::DecorationBinding, slot);
+        slot += count;
+    }
+}
 
 std::unique_ptr<spirv_cross::CompilerGLSL> make_cross_compiler(const Target& target, const std::vector<uint32_t>& spirv)
 {
@@ -128,6 +182,9 @@ std::string cross_compile(const Target& target, const std::vector<uint32_t>& spi
             hlsl->set_decoration(builtin, spv::DecorationDescriptorSet, 0);
             hlsl->set_decoration(builtin, spv::DecorationBinding, 0);
         }
+
+        if (is_d3d11_target(target))
+            compact_d3d11_sampler_bindings(*compiler);
 
         auto resources = compiler->get_shader_resources();
         const auto model = compiler->get_execution_model();
