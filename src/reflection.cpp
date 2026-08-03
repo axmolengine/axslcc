@@ -66,6 +66,13 @@ constexpr VariableTypeMap kVariableTypeMap[] = {
     {spirv_cross::SPIRType::Int, 3, 1, axslc::SC_TYPE_INT3},
     {spirv_cross::SPIRType::Int, 2, 1, axslc::SC_TYPE_INT2},
     {spirv_cross::SPIRType::Int, 1, 1, axslc::SC_TYPE_INT},
+    // UInt/Bool members (common in UBO structs) are reflected as the matching
+    // 32-bit Int type; the RHI only needs the size.
+    {spirv_cross::SPIRType::UInt, 4, 1, axslc::SC_TYPE_INT4},
+    {spirv_cross::SPIRType::UInt, 3, 1, axslc::SC_TYPE_INT3},
+    {spirv_cross::SPIRType::UInt, 2, 1, axslc::SC_TYPE_INT2},
+    {spirv_cross::SPIRType::UInt, 1, 1, axslc::SC_TYPE_INT},
+    {spirv_cross::SPIRType::Boolean, 1, 1, axslc::SC_TYPE_INT},
     {spirv_cross::SPIRType::UShort, 4, 1, axslc::SC_TYPE_USHORT4},
     {spirv_cross::SPIRType::UShort, 2, 1, axslc::SC_TYPE_USHORT2},
     {spirv_cross::SPIRType::UByte, 4, 1, axslc::SC_TYPE_UBYTE4},
@@ -495,7 +502,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             member.offset = static_cast<int32_t>(compiler->type_struct_member_offset(type, i));
             member.size_bytes = get_member_size(type, i);
             member.array_size = array_size(member_type);
-            member.var_type = resolve_sc_type(member_type);
+            // Nested struct members (e.g. a cbuffer wrapping a single struct) have
+            // no scalar SCType; report a placeholder type. Whole-block UBO binding
+            // does not rely on member var_type.
+            member.var_type = member_type.basetype == spirv_cross::SPIRType::Struct
+                ? axslc::SC_TYPE_FLOAT4
+                : resolve_sc_type(member_type);
             write_struct(out, member);
         }
     };
