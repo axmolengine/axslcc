@@ -367,6 +367,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     axslc::sc_chunk_refl header{};
     copy_name(header.name, sizeof(header.name), input.filename().string());
     header.debug_info = 1;
+    if (stage == ShaderStage::Compute)
+    {
+        header.compute_local_size[0] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 0));
+        header.compute_local_size[1] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 1));
+        header.compute_local_size[2] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 2));
+    }
     write_struct(out, header);
 
     auto write_input = [&](const spirv_cross::Resource& resource) {
@@ -568,7 +574,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             sampler.binding     = abi.reflected_binding;
             sampler.space       = abi.space;
             sampler.count       = array_size(type);
-            sampler.preset_index = axslc::kInvalidSamplerPreset;
+            sampler.preset_index = presetIdx;
             sampler.flags       = axslc::SC_SAMPLER_FLAG_NONE;
             sampler.reserved    = 0;
 
@@ -580,18 +586,23 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     if (stage == ShaderStage::Compute) {
         for (const auto& resource : resources.storage_images)
             write_texture(resource, true);
+    }
 
-        for (const auto& resource : resources.storage_buffers) {
-            auto& type = compiler->get_type(resource.base_type_id);
-            axslc::sc_refl_buffer buffer{};
-            copy_name(buffer.name, sizeof(buffer.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
-            buffer.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
-            buffer.size_bytes = get_ubo_size(type);
-            buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
-                - compiler->get_declared_struct_size_runtime_array(type, 0));
-            write_struct(out, buffer);
-            ++header.num_storage_buffers;
-        }
+    for (const auto& resource : resources.storage_buffers) {
+        auto& type = compiler->get_type(resource.base_type_id);
+        axslc::sc_refl_buffer buffer{};
+        copy_name(buffer.name, sizeof(buffer.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
+        buffer.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        buffer.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
+        buffer.size_bytes = get_ubo_size(type);
+        buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
+            - compiler->get_declared_struct_size_runtime_array(type, 0));
+        buffer.access = compiler->has_decoration(resource.id, spv::DecorationNonWritable)
+            ? axslc::SC_BUFFER_ACCESS_READ_ONLY : axslc::SC_BUFFER_ACCESS_READ_WRITE;
+        buffer.reserved = 0;
+        write_struct(out, buffer);
+        ++header.num_storage_buffers;
     }
 
     std::memcpy(out.data(), &header, sizeof(header));

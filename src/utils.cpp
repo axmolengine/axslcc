@@ -173,9 +173,9 @@ Target parse_target(std::string_view text)
         if (platform == "mtl")
             return profile >= 10000;
         if (platform == "gl")
-            return profile == 330 || profile == 450;
+            return profile == 330 || profile == 430 || profile == 450;
         if (platform == "gles")
-            return profile == 300;
+            return profile == 300 || profile == 310;
         return false;
     };
 
@@ -218,9 +218,9 @@ Target parse_target(std::string_view text)
         target.lang = axslc::SHADER_LANG_HLSL;
     } else if (lang == "msl" && (profile >= 10000)) {
         target.lang = axslc::SHADER_LANG_MSL;
-    } else if (lang == "essl" && profile == 300) {
+    } else if (lang == "essl" && (profile == 300 || profile == 310)) {
         target.lang = axslc::SHADER_LANG_ESSL;
-    } else if (lang == "glsl" && (profile == 330 || profile == 450)) {
+    } else if (lang == "glsl" && (profile == 330 || profile == 430 || profile == 450)) {
         target.lang = axslc::SHADER_LANG_GLSL;
     } else if (lang == "spirv" && profile == 100) {
         target.lang = axslc::SHADER_LANG_SPIRV;
