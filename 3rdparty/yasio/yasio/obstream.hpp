@@ -396,7 +396,7 @@ public:
     std::ofstream fout;
     fout.open(filename, std::ios::binary);
     if (!this->empty())
-      fout.write(this->data(), this->length());
+      fout.write(reinterpret_cast<const char*>(this->data()), this->length());
   }
 
 private:
