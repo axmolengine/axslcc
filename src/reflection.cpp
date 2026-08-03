@@ -282,6 +282,26 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         ? make_compiler(Target{axslc::SHADER_LANG_GLSL, 450, "glsl-450"}, spirv)
         : make_compiler(target, spirv);
 
+    // MSL shares a single [[buffer(N)]] namespace; mirror cross_compiler's
+    // UBO shifting so the reflected binding equals the MSL physical index.
+    if (target.lang == axslc::SHADER_LANG_MSL)
+    {
+        auto mslResources = compiler->get_shader_resources();
+        std::vector<uint32_t> usedBufferIndices;
+        for (const auto& sb : mslResources.storage_buffers)
+            usedBufferIndices.push_back(get_decoration_or_zero(*compiler, sb.id, spv::DecorationBinding));
+        for (const auto& ub : mslResources.uniform_buffers)
+        {
+            uint32_t targetIndex = get_decoration_or_zero(*compiler, ub.id, spv::DecorationBinding);
+            while (std::find(usedBufferIndices.begin(), usedBufferIndices.end(), targetIndex) !=
+                   usedBufferIndices.end())
+                ++targetIndex;
+            usedBufferIndices.push_back(targetIndex);
+            if (targetIndex != get_decoration_or_zero(*compiler, ub.id, spv::DecorationBinding))
+                compiler->set_decoration(ub.id, spv::DecorationBinding, targetIndex);
+        }
+    }
+
     const bool is_glsl_target = target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL;
 
     auto pre_resources = compiler->get_shader_resources();
