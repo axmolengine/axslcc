@@ -630,7 +630,11 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         buffer.size_bytes = get_ubo_size(type);
         buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
             - compiler->get_declared_struct_size_runtime_array(type, 0));
-        buffer.access = compiler->has_decoration(resource.id, spv::DecorationNonWritable)
+        // For SSBOs, glslang commonly places NonWritable on the block member
+        // rather than on the resource variable itself.  Query the effective
+        // buffer-block flags so read-only StructuredBuffer/ByteAddressBuffer
+        // resources are reflected as SRVs on every backend.
+        buffer.access = compiler->get_buffer_block_flags(resource.id).get(spv::DecorationNonWritable)
             ? axslc::SC_BUFFER_ACCESS_READ_ONLY : axslc::SC_BUFFER_ACCESS_READ_WRITE;
         buffer.reserved = 0;
         write_struct(out, buffer);
