@@ -281,9 +281,33 @@ std::string cross_compile(const Target& target, const std::vector<uint32_t>& spi
             : spirv_cross::CompilerMSL::Options::macOS;
         msl_options.ios_support_base_vertex_instance = true;
         msl_options.enable_decoration_binding = true;
-        msl_options.enable_base_index_zero = true;
+        // Metal's [[vertex_id]]/[[instance_id]] are already zero-based, so do
+        // not enable base index zero: SPIRV-Cross would emit
+        // (gl_VertexIndex - gl_BaseVertex) / (gl_InstanceIndex - gl_BaseInstance)
+        // but omit the [[base_vertex]]/[[base_instance]] arguments, producing
+        // MSL that fails to compile.
+        msl_options.enable_base_index_zero = false;
         msl_options.msl_version = static_cast<uint32_t>(target.profile);
         msl->set_msl_options(msl_options);
+
+        // MSL shares a single [[buffer(N)]] namespace between UBOs and storage
+        // buffers. Storage buffers keep their unified logical slot; shift any
+        // colliding UBO bindings past the storage slots. The same remap is
+        // applied in reflection.cpp so the reflected binding matches the MSL
+        // physical buffer index.
+        auto mslResources = msl->get_shader_resources();
+        std::vector<uint32_t> usedBufferIndices;
+        for (const auto& sb : mslResources.storage_buffers)
+            usedBufferIndices.push_back(get_decoration_or_zero(*msl, sb.id, spv::DecorationBinding));
+        for (const auto& ub : mslResources.uniform_buffers)
+        {
+            uint32_t target = get_decoration_or_zero(*msl, ub.id, spv::DecorationBinding);
+            while (std::find(usedBufferIndices.begin(), usedBufferIndices.end(), target) != usedBufferIndices.end())
+                ++target;
+            usedBufferIndices.push_back(target);
+            if (target != get_decoration_or_zero(*msl, ub.id, spv::DecorationBinding))
+                msl->set_decoration(ub.id, spv::DecorationBinding, target);
+        }
     }
 
     compiler->set_common_options(spv_options);

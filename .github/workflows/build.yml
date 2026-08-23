@@ -9,7 +9,7 @@ jobs:
   win-x64:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: build & install
       shell: pwsh
       run: |
@@ -24,13 +24,16 @@ jobs:
   win-arm64:
     runs-on: windows-11-arm
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: build & install
       shell: pwsh
       run: |
         cmake -B build -A arm64
         cmake --build build --config Release --target axslcc
         cmake --install build --config Release --component axslcc --prefix install
+    - name: Verify executable
+      shell: pwsh
+      run: .\install\bin\axslcc.exe --version
     - name: Upload
       uses: actions/upload-artifact@v6
       with:
@@ -39,7 +42,7 @@ jobs:
   linux-x64:
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: build & install
       shell: pwsh
       run: |
@@ -54,7 +57,7 @@ jobs:
   linux-arm64:
     runs-on: ubuntu-22.04-arm
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: build & install
       shell: pwsh
       run: |
@@ -69,7 +72,7 @@ jobs:
   osx-arm64:
     runs-on: macos-15
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Setup Xcode version
       uses: maxim-lobanov/setup-xcode@v1
       with:
@@ -91,7 +94,7 @@ jobs:
   osx-x64:
     runs-on: macos-15
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Setup Xcode version
       uses: maxim-lobanov/setup-xcode@v1
       with:

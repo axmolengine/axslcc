@@ -1,0 +1,29 @@
+From 0f57faab720e6af71198eabc202d79ac43fd69ac Mon Sep 17 00:00:00 2001
+From: halx99 <6977319+halx99@users.noreply.github.com>
+Date: Sun, 23 Aug 2026 12:34:41 +0800
+Subject: [PATCH] fix: transpose non-native row-major matrix struct stores
+
+
+diff --git a/spirv_glsl.cpp b/spirv_glsl.cpp
+index aab69f84..077b3a85 100644
+--- a/spirv_glsl.cpp
++++ b/spirv_glsl.cpp
+@@ -12332,6 +12332,18 @@ string CompilerGLSL::build_composite_combiner(uint32_t return_type, const uint32
+ 			bool uses_buffer_offset =
+ 			    type.basetype == SPIRType::Struct && has_member_decoration(type.self, i, DecorationOffset);
+ 			subop = to_composite_constructor_expression(type, elems[i], uses_buffer_offset);
++
++			// MSL (and other backends without native row-major buffer layout)
++			// declare buffer-backed row-major matrices with a transposed physical
++			// type (e.g. float3x4 for a logical float4x3). Constructing such a
++			// struct whole (OpCompositeConstruct + OpStore) must transpose the
++			// matrix element to match the buffer field type, otherwise the
++			// emitted MSL fails to compile. Backends that declare row-major
++			// natively (GLSL layout(row_major), HLSL) are not affected because
++			// member_is_non_native_row_major_matrix() reports false there.
++			if (type.basetype == SPIRType::Struct && is_matrix(expression_type(elems[i])) &&
++			    member_is_non_native_row_major_matrix(type, i))
++				subop = join("transpose(", subop, ")");
+ 		}
+ 
+ 		base = e ? e->base_expression : ID(0);

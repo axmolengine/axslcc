@@ -69,6 +69,7 @@ if(WIN32)
     find_library(DXC_LIBRARY NAMES dxcompiler PATHS "${_lib_path}" NO_DEFAULT_PATH)
     find_file(DXC_RUNTIME NAMES dxcompiler.dll PATHS "${_lib_path}" NO_DEFAULT_PATH)
     find_file(DXC_RUNTIME_DXIL NAMES dxil.dll PATHS "${_lib_path}" NO_DEFAULT_PATH)
+
 elseif(APPLE)
     find_library(DXC_LIBRARY NAMES libdxcompiler.dylib PATHS "${_lib_path}" NO_DEFAULT_PATH)
     find_file(DXC_RUNTIME NAMES libdxcompiler.dylib PATHS "${_lib_path}" NO_DEFAULT_PATH)

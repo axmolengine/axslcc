@@ -273,8 +273,7 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
     struct Allocation
     {
         uint32_t cbv{0};
-        uint32_t srv{0};
-        uint32_t uav{0};
+        uint32_t resource{0};  // unified logical slot: sampled textures + storage buffers share one sequence
     } alloc;
 
     if (options.stage == ShaderStage::Fragment)
@@ -352,14 +351,14 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
         else if (type.rfind("RW", 0) == 0)
         {
             regClass = 'u';
-            binding = alloc.uav;
-            alloc.uav += count;
+            binding = alloc.resource;
+            alloc.resource += count;
         }
         else
         {
             regClass = 't';
-            binding = alloc.srv;
-            alloc.srv += count;
+            binding = alloc.resource;
+            alloc.resource += count;
         }
 
         return type + " " + name + arraySuffix + " : register(" + regClass + std::to_string(binding) + ", space" +

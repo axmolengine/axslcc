@@ -33,4 +33,5 @@ _x
 
 *.patch
 *.diff
+!spirv-cross-row-major-store.patch
 .DS_Store

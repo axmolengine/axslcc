@@ -66,6 +66,13 @@ constexpr VariableTypeMap kVariableTypeMap[] = {
     {spirv_cross::SPIRType::Int, 3, 1, axslc::SC_TYPE_INT3},
     {spirv_cross::SPIRType::Int, 2, 1, axslc::SC_TYPE_INT2},
     {spirv_cross::SPIRType::Int, 1, 1, axslc::SC_TYPE_INT},
+    // UInt/Bool members (common in UBO structs) are reflected as the matching
+    // 32-bit Int type; the RHI only needs the size.
+    {spirv_cross::SPIRType::UInt, 4, 1, axslc::SC_TYPE_INT4},
+    {spirv_cross::SPIRType::UInt, 3, 1, axslc::SC_TYPE_INT3},
+    {spirv_cross::SPIRType::UInt, 2, 1, axslc::SC_TYPE_INT2},
+    {spirv_cross::SPIRType::UInt, 1, 1, axslc::SC_TYPE_INT},
+    {spirv_cross::SPIRType::Boolean, 1, 1, axslc::SC_TYPE_INT},
     {spirv_cross::SPIRType::UShort, 4, 1, axslc::SC_TYPE_USHORT4},
     {spirv_cross::SPIRType::UShort, 2, 1, axslc::SC_TYPE_USHORT2},
     {spirv_cross::SPIRType::UByte, 4, 1, axslc::SC_TYPE_UBYTE4},
@@ -282,6 +289,26 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
         ? make_compiler(Target{axslc::SHADER_LANG_GLSL, 450, "glsl-450"}, spirv)
         : make_compiler(target, spirv);
 
+    // MSL shares a single [[buffer(N)]] namespace; mirror cross_compiler's
+    // UBO shifting so the reflected binding equals the MSL physical index.
+    if (target.lang == axslc::SHADER_LANG_MSL)
+    {
+        auto mslResources = compiler->get_shader_resources();
+        std::vector<uint32_t> usedBufferIndices;
+        for (const auto& sb : mslResources.storage_buffers)
+            usedBufferIndices.push_back(get_decoration_or_zero(*compiler, sb.id, spv::DecorationBinding));
+        for (const auto& ub : mslResources.uniform_buffers)
+        {
+            uint32_t targetIndex = get_decoration_or_zero(*compiler, ub.id, spv::DecorationBinding);
+            while (std::find(usedBufferIndices.begin(), usedBufferIndices.end(), targetIndex) !=
+                   usedBufferIndices.end())
+                ++targetIndex;
+            usedBufferIndices.push_back(targetIndex);
+            if (targetIndex != get_decoration_or_zero(*compiler, ub.id, spv::DecorationBinding))
+                compiler->set_decoration(ub.id, spv::DecorationBinding, targetIndex);
+        }
+    }
+
     const bool is_glsl_target = target.lang == axslc::SHADER_LANG_ESSL || target.lang == axslc::SHADER_LANG_GLSL;
 
     auto pre_resources = compiler->get_shader_resources();
@@ -367,6 +394,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     axslc::sc_chunk_refl header{};
     copy_name(header.name, sizeof(header.name), input.filename().string());
     header.debug_info = 1;
+    if (stage == ShaderStage::Compute)
+    {
+        header.compute_local_size[0] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 0));
+        header.compute_local_size[1] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 1));
+        header.compute_local_size[2] = static_cast<uint16_t>(compiler->get_execution_mode_argument(spv::ExecutionModeLocalSize, 2));
+    }
     write_struct(out, header);
 
     auto write_input = [&](const spirv_cross::Resource& resource) {
@@ -469,7 +502,12 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             member.offset = static_cast<int32_t>(compiler->type_struct_member_offset(type, i));
             member.size_bytes = get_member_size(type, i);
             member.array_size = array_size(member_type);
-            member.var_type = resolve_sc_type(member_type);
+            // Nested struct members (e.g. a cbuffer wrapping a single struct) have
+            // no scalar SCType; report a placeholder type. Whole-block UBO binding
+            // does not rely on member var_type.
+            member.var_type = member_type.basetype == spirv_cross::SPIRType::Struct
+                ? axslc::SC_TYPE_FLOAT4
+                : resolve_sc_type(member_type);
             write_struct(out, member);
         }
     };
@@ -568,7 +606,7 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
             sampler.binding     = abi.reflected_binding;
             sampler.space       = abi.space;
             sampler.count       = array_size(type);
-            sampler.preset_index = axslc::kInvalidSamplerPreset;
+            sampler.preset_index = presetIdx;
             sampler.flags       = axslc::SC_SAMPLER_FLAG_NONE;
             sampler.reserved    = 0;
 
@@ -580,18 +618,27 @@ tlx::byte_buffer build_reflection(const Target& target, const std::vector<uint32
     if (stage == ShaderStage::Compute) {
         for (const auto& resource : resources.storage_images)
             write_texture(resource, true);
+    }
 
-        for (const auto& resource : resources.storage_buffers) {
-            auto& type = compiler->get_type(resource.base_type_id);
-            axslc::sc_refl_buffer buffer{};
-            copy_name(buffer.name, sizeof(buffer.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
-            buffer.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
-            buffer.size_bytes = get_ubo_size(type);
-            buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
-                - compiler->get_declared_struct_size_runtime_array(type, 0));
-            write_struct(out, buffer);
-            ++header.num_storage_buffers;
-        }
+    for (const auto& resource : resources.storage_buffers) {
+        auto& type = compiler->get_type(resource.base_type_id);
+        axslc::sc_refl_buffer buffer{};
+        copy_name(buffer.name, sizeof(buffer.name), resource.name.empty() ? compiler->get_fallback_name(resource.base_type_id) : resource.name);
+        buffer.binding = static_cast<int32_t>(compiler->get_decoration(resource.id, spv::DecorationBinding));
+        buffer.descriptor_set = static_cast<uint16_t>(compiler->has_decoration(resource.id, spv::DecorationDescriptorSet)
+            ? compiler->get_decoration(resource.id, spv::DecorationDescriptorSet) : 0);
+        buffer.size_bytes = get_ubo_size(type);
+        buffer.array_stride = static_cast<uint32_t>(compiler->get_declared_struct_size_runtime_array(type, 1)
+            - compiler->get_declared_struct_size_runtime_array(type, 0));
+        // For SSBOs, glslang commonly places NonWritable on the block member
+        // rather than on the resource variable itself.  Query the effective
+        // buffer-block flags so read-only StructuredBuffer/ByteAddressBuffer
+        // resources are reflected as SRVs on every backend.
+        buffer.access = compiler->get_buffer_block_flags(resource.id).get(spv::DecorationNonWritable)
+            ? axslc::SC_BUFFER_ACCESS_READ_ONLY : axslc::SC_BUFFER_ACCESS_READ_WRITE;
+        buffer.reserved = 0;
+        write_struct(out, buffer);
+        ++header.num_storage_buffers;
     }
 
     std::memcpy(out.data(), &header, sizeof(header));

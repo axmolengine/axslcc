@@ -3,6 +3,8 @@ project(axslcc)
 
 message(STATUS "=== Generator: ${CMAKE_GENERATOR} ===")
 
+set(_GLSLANG_VER "16.5.0")
+
  if (WIN32)
     set (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
     set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
@@ -85,18 +87,43 @@ set(ENABLE_CTEST FALSE CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 
+find_program(GIT_COMMAND NAMES git REQUIRED)
 if (NOT (IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/spirv-cross"))
-    message(STATUS "Downloading glslang ...")
-    find_program(GIT_COMMAND NAMES git REQUIRED)
+    message(STATUS "Downloading SPIRV-Cross ...")
     execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/SPIRV-Cross.git" "${CMAKE_CURRENT_LIST_DIR}/3rdparty/spirv-cross")
-    set(SPIRV_CROSS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/3rdparty/spirv-cross")
+endif()
+set(SPIRV_CROSS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/3rdparty/spirv-cross")
+
+set(SPIRV_CROSS_PATCH "${CMAKE_CURRENT_LIST_DIR}/spirv-cross-row-major-store.patch")
+if (NOT EXISTS "${SPIRV_CROSS_PATCH}")
+    message(FATAL_ERROR "Missing SPIRV-Cross patch: ${SPIRV_CROSS_PATCH}")
+endif()
+
+execute_process(
+    COMMAND ${GIT_COMMAND} -C "${SPIRV_CROSS_SOURCE_DIR}" apply --check "${SPIRV_CROSS_PATCH}"
+    RESULT_VARIABLE SPIRV_CROSS_PATCH_CHECK)
+if (SPIRV_CROSS_PATCH_CHECK EQUAL 0)
+    execute_process(
+        COMMAND ${GIT_COMMAND} -C "${SPIRV_CROSS_SOURCE_DIR}" apply "${SPIRV_CROSS_PATCH}"
+        RESULT_VARIABLE SPIRV_CROSS_PATCH_APPLY)
+    if (NOT SPIRV_CROSS_PATCH_APPLY EQUAL 0)
+        message(FATAL_ERROR "Failed to apply SPIRV-Cross patch")
+    endif()
+else()
+    execute_process(
+        COMMAND ${GIT_COMMAND} -C "${SPIRV_CROSS_SOURCE_DIR}" apply --reverse --check "${SPIRV_CROSS_PATCH}"
+        RESULT_VARIABLE SPIRV_CROSS_PATCH_REVERSE_CHECK)
+    if (NOT SPIRV_CROSS_PATCH_REVERSE_CHECK EQUAL 0)
+        message(FATAL_ERROR "SPIRV-Cross source is incompatible with ${SPIRV_CROSS_PATCH}")
+    endif()
+    message(STATUS "SPIRV-Cross row-major store patch already applied")
 endif()
 
 if (NOT (IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang"))
     message(STATUS "Downloading glslang ...")
     find_program(GIT_COMMAND NAMES git REQUIRED)
     execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/glslang.git" "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
-    execute_process(COMMAND ${GIT_COMMAND} -C "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang" checkout "16.3.0")
+    execute_process(COMMAND ${GIT_COMMAND} -C "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang" checkout ${_GLSLANG_VER})
     find_program(PYTHON_COMMAND NAMES python3 python REQUIRED)
     execute_process(COMMAND ${PYTHON_COMMAND} "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang/update_glslang_sources.py" 
         WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
