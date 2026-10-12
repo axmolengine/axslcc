@@ -125,6 +125,56 @@ std::string strip_comments(std::string_view source)
     return result;
 }
 
+// Like strip_comments() but length-preserving: comments collapse to spaces so match
+// offsets taken on the mask address the original text directly.
+std::string mask_comments(std::string_view source)
+{
+    std::string result;
+    result.reserve(source.size());
+    for (size_t i = 0; i < source.size();)
+    {
+        if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '/')
+        {
+            while (i < source.size() && source[i] != '\n')
+                result.push_back(' '), ++i;
+            continue;
+        }
+        if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '*')
+        {
+            result += "  ";
+            i += 2;
+            while (i < source.size())
+            {
+                if (source[i] == '*' && i + 1 < source.size() && source[i + 1] == '/')
+                {
+                    result += "  ";
+                    i += 2;
+                    break;
+                }
+                result.push_back(source[i] == '\n' ? '\n' : ' ');
+                ++i;
+            }
+            continue;
+        }
+        if (source[i] == '"' || source[i] == '\'')
+        {
+            const char quote = source[i++];
+            result.push_back(quote);
+            while (i < source.size() && source[i] != quote)
+            {
+                if (source[i] == '\\' && i + 1 < source.size())
+                    result.push_back(source[i++]);
+                result.push_back(source[i++]);
+            }
+            if (i < source.size())
+                result.push_back(source[i++]);
+            continue;
+        }
+        result.push_back(source[i++]);
+    }
+    return result;
+}
+
 void validate_no_explicit_resource_registers(std::string_view source)
 {
     static const std::regex kResourceRegisterPattern(
@@ -278,14 +328,33 @@ std::string inject_hlsl_resource_layout(std::string source, const Options& optio
         return result;
     };
 
-    static const std::regex kCBufferPattern(
-        R"(\b(cbuffer)\s+([A-Za-z_]\w*)\s*(\{))",
-        std::regex_constants::optimize);
-    source = apply_regex(std::move(source), kCBufferPattern, [&](const std::smatch& match) {
-        const auto binding = alloc.cbv++;
-        return match.str(1) + " " + match.str(2) + " : register(b" + std::to_string(binding) + ", space0) " +
-               match.str(3);
-    });
+    // Scan over a comment mask: a trailing `// ...` between the block name and its brace must
+    // not hide the declaration, and a `cbuffer` that exists only inside a comment must not
+    // consume a slot. Mask offsets address `source` directly.
+    static const std::regex kCBufferPattern(R"(\b(cbuffer)\s+([A-Za-z_]\w*))", std::regex_constants::optimize);
+
+    const std::string masked = mask_comments(source);
+    if (masked.size() != source.size())
+        throw std::runtime_error("internal error: comment mask length differs from the source");
+    std::string annotated;
+    annotated.reserve(source.size() + 64);
+    size_t last = 0;
+    for (std::sregex_iterator it(masked.begin(), masked.end(), kCBufferPattern), end; it != end; ++it)
+    {
+        const std::smatch& match  = *it;
+        const size_t nameEnd      = static_cast<size_t>(match.position(2)) + static_cast<size_t>(match.length(2));
+        const size_t opener       = masked.find_first_not_of(" \t\r\n", nameEnd);
+        if (opener == std::string::npos || masked[opener] != '{')
+            throw std::runtime_error("cbuffer '" + match.str(2) +
+                                     "' is not followed by '{', so axslcc cannot assign it a register. "
+                                     "Declare it as 'cbuffer Name {' without manual register/packoffset annotations.");
+
+        annotated.append(source, last, nameEnd - last);
+        annotated += " : register(b" + std::to_string(alloc.cbv++) + ", space0)";
+        last = nameEnd;
+    }
+    annotated.append(source, last, std::string::npos);
+    source = std::move(annotated);
 
     static const std::regex kUnsupportedResourcePattern(
         R"(\b(ConstantBuffer\s*<[^;{}>]+>|Texture2DMS(?:Array)?(?:\s*<[^;{}>]+>)?|(?:Append|Consume)StructuredBuffer\s*<[^;{}>]+>|RasterizerOrdered(?:Texture(?:1D|2D|3D)(?:Array)?|Buffer|StructuredBuffer|ByteAddressBuffer)(?:\s*<[^;{}>]+>)?)\s+([A-Za-z_]\w*)\s*(\[[^\]]+\])?\s*;)",
