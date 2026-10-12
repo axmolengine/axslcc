@@ -6,7 +6,7 @@
  SPDX-License-Identifier: MIT
  ****************************************************************************/
 // Axmol Shader Compiler Spec: Macro and Struct Definitions (Inspired by glslcc)
-// match with axslcc-3.99.0+
+// match with axslcc-4.0.0+
 
 #pragma once
 
@@ -20,7 +20,7 @@ namespace axslc
 
 #pragma pack(push, 1)
 
-#define SC_CHUNK          sc_makefourcc('A', 'X', 'S', 'C')
+#define SC_CHUNK          sc_makefourcc('A', 'X', 'S', 'A')
 #define SC_CHUNK_STAG     sc_makefourcc('S', 'T', 'A', 'G')
 #define SC_CHUNK_REFL     sc_makefourcc('R', 'E', 'F', 'L')
 #define SC_CHUNK_CODE     sc_makefourcc('C', 'O', 'D', 'E')
@@ -38,6 +38,8 @@ namespace axslc
 #define SC_STAGE_COMPUTE  sc_makefourcc('C', 'O', 'M', 'P')
 
 #define SC_NAME_LEN       32
+
+#define SC_ABI_MAJOR      4
 
 // The axslcc sampler presets
 struct SamplerPreset

@@ -1,21 +1,42 @@
 # axslcc
 
 ## Overview
-**axslcc** is being **completely rewritten**. The rewritten project will start at **version 3.99.0 and later**. This document explains compatibility and download policy during the transition and points to the legacy repository for users who need to build older releases locally.
+**axslcc** is the complete rewrite of the Axmol shader compiler. Releases follow semantic versioning from **4.0.0**
+onward: the **major** number is the `.sc` container ABI generation, **minor** adds features without changing the
+container, and **patch** carries fixes. This document explains the compatibility and download policy across the version
+lines and points to the legacy repository for users who need to build older releases locally.
 
 ## Deprecation Notice
 - **All versions <= 3.6.0 are deprecated.**  
   These legacy releases are retained **only** to support building older versions of **axmol** and are no longer actively maintained.
-- **The new implementation begins at >= 3.99.0.**  
-  From 3.99.0 onward, axslcc is a full rewrite and will follow a new development and release process.
+- **Versions 3.99.0 – 3.99.2 are the transition line and are now superseded.**  
+  They already contain the rewritten implementation, but the archives they produce belong to container generation 3.
+- **Version 3.99.3 was withdrawn**: its release and tag have been removed, so it is not available to download. The
+  header change it carried ships in 4.0.0 instead.
+- **The supported line begins at >= 4.0.0**, container generation 4.
 
 ## Download and Usage
-- If you need axslcc for **legacy axmol builds**, download the appropriate release assets from the legacy releases.
-- For new development, integration, or production use, prefer the rewritten axslcc releases **version 3.99.0 and above** once they become available.
+- If you need axslcc for **legacy axmol builds**, download the appropriate pre-3.6.0 release assets.
+- For new development, integration, or production use, take a **4.0.0 or newer** release. Axmol runtimes from the 4.0.0
+  line reject generation-3 archives outright, so **recompile every shader** when you switch: clear the compiler output
+  folder and the `axslc` copy that sits next to the executable, then rebuild.
 
 ## Compatibility Summary
-- **Versions <= 3.6.0**: Deprecated and kept only for legacy axmol build support.  
-- **Versions 3.99.0 and above**: Rewritten implementation. Use these for current and future development.
+
+| axslcc version | Container generation | Status |
+|----------------|----------------------|--------|
+| <= 3.6.0       | legacy container     | Deprecated; kept for legacy axmol builds only |
+| 3.99.0 – 3.99.2 | 3                  | Superseded; archives are not readable by 4.0.0+ runtimes |
+| 3.99.3         | —                    | Withdrawn; release and tag removed |
+| >= 4.0.0       | 4                    | Current line, semantic versioning |
+
+### Archive versioning
+
+Every `.sc` archive starts with the container magic (`SC_CHUNK`) followed by `sc_chunk`, whose `major` field is the ABI
+generation; a runtime accepts an archive only when that field matches its own `SC_ABI_MAJOR`. The magic names the
+container and does not change between generations, so the version fields carry the compatibility decision. From 4.0.0
+the `{major, minor, patch, num_targets}` layout of `sc_chunk` is frozen, and `AXSLCC_MAJOR` is bound to `SC_ABI_MAJOR`
+by a compile-time assertion, so a release cannot advertise a generation the container format does not back.
 
 ## Build Legacy Versions Locally
 If you need to compile or inspect deprecated legacy versions locally, clone the legacy repository and follow its build instructions:
