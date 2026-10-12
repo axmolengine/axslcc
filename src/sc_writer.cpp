@@ -24,6 +24,7 @@ namespace
 
 constexpr uint16_t kScMajor = AXSLCC_MAJOR;
 constexpr uint16_t kScMinor = AXSLCC_MINOR;
+constexpr uint16_t kScPatch = AXSLCC_PATCH;
 
 uint32_t sc_lang(const Target& target)
 {
@@ -86,6 +87,7 @@ void write_archive(const Options& options,
     axslc::sc_chunk header{};
     header.major = kScMajor;
     header.minor = kScMinor;
+    header.patch = kScPatch;
     header.num_targets = static_cast<uint16_t>(targets.size());
     write_struct(out, header);
 

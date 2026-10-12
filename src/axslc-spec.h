@@ -141,12 +141,15 @@ enum SCType : uint16_t
 };
 
 // sc chunk aka file header
+// Compilers predating the patch field stored num_targets in the third slot and left the fourth
+// zero. A valid header always has num_targets >= 1, so a reader can recognize such an archive by
+// num_targets == 0 and ask for a recompile instead of parsing the target table wrong.
 struct sc_chunk
 {
     uint16_t major;  // SC_VERSION_MAJOR
     uint16_t minor;  // SC_VERSION_MINOR
+    uint16_t patch;  // SC_VERSION_PATCH
     uint16_t num_targets;
-    uint16_t reserved;
 };
 
 struct sc_target_entry
