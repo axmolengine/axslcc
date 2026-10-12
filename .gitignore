@@ -12,7 +12,7 @@ _deps
 CMakeUserPresets.json
 
 3rdparty/spirv-cross
-3rdparty/glslang
+3rdparty/spirv-tools
 
 # CLion
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

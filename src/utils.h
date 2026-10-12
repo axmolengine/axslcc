@@ -36,7 +36,8 @@ void write_file(const fs::path& path, std::string_view data);
 
 // ============= Stage & Format Detection =============
 
-ShaderInfo classify(const fs::path& input);
+// The shader stage comes from the filename: a _vs/_fs/_ps/_cs suffix.
+ShaderStage classify(const fs::path& input);
 bool is_hlsl_source(const fs::path& input);
 
 // ============= Vertex Attribute Semantics =============

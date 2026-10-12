@@ -29,21 +29,7 @@ static int run_main(int argc, char** argv)
     try
     {
         auto options = axslcc::utils::parse_args(argc, argv);
-
-        axslcc::Compiler compiler;
-        compiler.initialize();
-
-        try
-        {
-            compiler.compile(options);
-        }
-        catch (...)
-        {
-            compiler.finalize();
-            throw;
-        }
-
-        compiler.finalize();
+        axslcc::compile(options);
         return 0;
     }
     catch (std::exception& ex)

@@ -17,28 +17,12 @@
 #    include "fxc_compiler.h"
 #endif
 
-#include "glslang/Public/ShaderLang.h"
-
-#include "spirv_glsl.hpp"
-
-#include <fmt/format.h>
 #include <iostream>
-#include <unordered_map>
 
 namespace axslcc
 {
 
-void Compiler::initialize()
-{
-    glslang::InitializeProcess();
-}
-
-void Compiler::finalize()
-{
-    glslang::FinalizeProcess();
-}
-
-void Compiler::compile(const Options& options)
+void compile(const Options& options)
 {
     auto stage = options.stage;
 
@@ -73,17 +57,10 @@ void Compiler::compile(const Options& options)
 
     for (const auto& target : targets)
     {
-        if (options.input_lang == InputLang::HLSL && options.hlsl_frontend == HlslFrontend::Glslang &&
-            target.lang == axslc::SHADER_LANG_SPIRV && options.vulkan_sampler_mode == VulkanSamplerMode::Separate)
-        {
-            throw std::runtime_error(
-                "--hlsl-frontend glslang cannot emit Vulkan separate samplers; use DXC or --vulkan-samplers combined");
-        }
+        OutputBlob blob;
+        blob.target = &target;
 
-    OutputBlob blob;
-    blob.target = &target;
-
-        // Unified binary path: HLSL -> glslang -> SPIR-V -> SPIRV-Cross -> clean HLSL -> DXC/FXC -> binary
+        // Unified binary path: HLSL -> DXC -> SPIR-V -> SPIRV-Cross -> clean HLSL -> DXC/FXC -> bytecode
         // SPIRV-Cross strips [[vk::builtin(...)]] annotations that DXC/FXC don't recognize
         CompileUnit unit;
         try
@@ -123,100 +100,9 @@ void Compiler::compile(const Options& options)
             }
             else if (target.lang == axslc::SHADER_LANG_SPIRV)
             {
-                if (options.vulkan_sampler_mode == VulkanSamplerMode::Separate)
-                {
-                    if (options.archive)
-                        reflections.push_back(
-                            reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
-                    auto runtimeSpirv = spirv::make_vulkan_runtime_spirv(unit.spirv);
-                    blob.data         = spirv::spirv_to_bytes(runtimeSpirv);
-                    outputs.push_back(std::move(blob));
-                    continue;
-                }
-
-                // Round-trip SPIR-V through GLSL to combine SamplerState declarations
-                // from base.hlsli into combined image samplers. The raw glslang SPIR-V
-                // has separate OpTypeSampler descriptors (s0..s21) that conflict with
-                // OpTypeImage descriptors (t0..tN) at the same DescriptorSet/Binding.
-                //
-                // Steps:
-                // 1. Use SPIRV-Cross to get combined sampler binding info from images
-                // 2. Cross-compile to Vulkan GLSL (which merges separate images+samplers)
-                // 3. Post-process GLSL text to add layout(binding=N, set=M) qualifiers
-                //    (SPIRV-Cross doesn't emit them for combined sampler2D)
-                // 4. Re-compile GLSL to SPIR-V via glslang
-
-                // Step 1: Extract binding info from original SPIR-V images
-                auto reflCompiler = std::make_unique<spirv_cross::CompilerGLSL>(unit.spirv);
-                auto preRes       = reflCompiler->get_shader_resources();
-                std::unordered_map<spirv_cross::VariableID, std::string> imageNameMap;
-                for (const auto& img : preRes.separate_images)
-                    imageNameMap[img.id] = reflCompiler->get_name(img.id);
-                reflCompiler->build_combined_image_samplers();
-                // name -> {set, binding}
-                std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> bindInfo;
-                std::unordered_map<spirv_cross::VariableID, spirv_cross::VariableID> samplerByImage;
-                for (const auto& c : reflCompiler->get_combined_image_samplers())
-                {
-                    auto it = imageNameMap.find(c.image_id);
-                    if (it == imageNameMap.end())
-                        continue;
-                    auto [samplerIt, inserted] = samplerByImage.emplace(c.image_id, c.sampler_id);
-                    if (!inserted && samplerIt->second != c.sampler_id)
-                    {
-                        throw std::runtime_error(
-                            "Vulkan combined sampler mode does not support sampling one texture with multiple sampler states in Axmol: " +
-                            it->second + ". Use --vulkan-samplers separate or use a single sampler for that texture.");
-                    }
-                    uint32_t binding     = reflCompiler->has_decoration(c.image_id, spv::DecorationBinding)
-                                               ? reflCompiler->get_decoration(c.image_id, spv::DecorationBinding)
-                                               : 0;
-                    uint32_t descSet     = reflCompiler->has_decoration(c.image_id, spv::DecorationDescriptorSet)
-                                               ? reflCompiler->get_decoration(c.image_id, spv::DecorationDescriptorSet)
-                                               : 0;
-                    bindInfo[it->second] = {descSet, binding};
-                }
-
-                // Step 2: Cross-compile to Vulkan GLSL
-                Target glslTarget{axslc::SHADER_LANG_GLSL, 450, "glsl-450"};
-                auto glslSource = cross::cross_compile(glslTarget, unit.spirv, options);
-
-                // Step 3: Post-process GLSL - prepend layout(binding=, set=) to combined sampler2D
-                for (const auto& [name, info] : bindInfo)
-                {
-                    auto [descSet, binding] = info;
-                    // Find the declaration "uniform <type> NAME;" or "uniform <type> NAME[N];"
-                    // by searching for NAME followed by ; or [, then looking backwards for "uniform "
-                    size_t namePos = glslSource.find(name + ";");
-                    if (namePos == std::string::npos)
-                        namePos = glslSource.find(name + "[");
-                    if (namePos != std::string::npos)
-                    {
-                        size_t uniformPos = glslSource.rfind("uniform ", namePos);
-                        if (uniformPos != std::string::npos && (namePos - uniformPos) < 80)
-                        {
-                            glslSource.insert(uniformPos, fmt::format("layout(set = {}, binding = {}) ", descSet, binding));
-                        }
-                    }
-                }
-
-                // Step 4: Re-compile GLSL to SPIR-V
-                std::vector<uint32_t> combinedSpirv;
-                std::string log;
-                if (!spirv::compile_glsl_to_spirv(glslSource, unit.stage, combinedSpirv, options.opt_level, log))
-                {
-                    std::cerr << "axslcc: error re-compiling GLSL to SPIR-V for " << options.input.filename().string()
-                              << ":\n  " << log << std::endl;
-                    throw std::runtime_error("SPIR-V round-trip compilation failed");
-                }
-
                 if (options.archive)
-                    reflections.push_back(
-                        reflection::build_reflection(target, combinedSpirv, unit.stage, options.input));
-
-                auto runtimeSpirv = spirv::make_vulkan_runtime_spirv(combinedSpirv);
-                blob.data         = spirv::spirv_to_bytes(runtimeSpirv);
-                blob.target       = &target;
+                    reflections.push_back(reflection::build_reflection(target, unit.spirv, unit.stage, options.input));
+                blob.data = spirv::spirv_to_bytes(spirv::make_vulkan_runtime_spirv(unit.spirv));
             }
         }
         else

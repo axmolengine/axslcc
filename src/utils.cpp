@@ -63,11 +63,6 @@ void print_help()
         << "  -o <path>          Output file or basename (default: input stem)\n"
         << "  -t <target>        Output target (repeatable)\n"
         << "  -a                 Write Axmol .sc archive with reflection data\n"
-        << "  -x <lang>          Input language: hlsl, glsl (default: hlsl)\n"
-        << "  --hlsl-frontend <dxc|glslang>\n"
-        << "                     HLSL frontend (default: dxc)\n"
-        << "  --vulkan-samplers <separate|combined>\n"
-        << "                     Vulkan descriptor model (default: separate)\n"
         << "  -S                 Keep HLSL source, don't compile to DXBC/DXIL (D3D targets only)\n"
         << "  -O<level>          Optimization level: 0 (debug, default), 1 (favor size), 2 (favor speed), 3 (aggressive)\n"
         << "  -I <dir>           Include directory (repeatable)\n"
@@ -248,36 +243,12 @@ Options parse_args(int argc, char** argv)
             options.targets.push_back(parse_target(value));
         } else if (arg == "-a") {
             options.archive = true;
-        } else if (arg == "-x") {
-            require_value(argc, argv, i, "-x", value);
-            auto lang = lower(value);
-            if (lang == "hlsl")
-                options.input_lang = InputLang::HLSL;
-            else if (lang == "glsl")
-                options.input_lang = InputLang::GLSL;
-            else
-                throw std::runtime_error(fmt::format("unknown input language '{}' (expected hlsl or glsl)", value));
-            options.xlang = true;
         } else if (arg == "-S") {
             options.keep_source_hint = true;
-        } else if (arg == "--vulkan-samplers") {
-            require_value(argc, argv, i, "--vulkan-samplers", value);
-            auto mode = lower(value);
-            if (mode == "separate")
-                options.vulkan_sampler_mode = VulkanSamplerMode::Separate;
-            else if (mode == "combined")
-                options.vulkan_sampler_mode = VulkanSamplerMode::Combined;
-            else
-                throw std::runtime_error(fmt::format("unknown Vulkan sampler mode '{}' (expected separate or combined)", value));
-        } else if (arg == "--hlsl-frontend") {
-            require_value(argc, argv, i, "--hlsl-frontend", value);
-            auto frontend = lower(value);
-            if (frontend == "dxc")
-                options.hlsl_frontend = HlslFrontend::DXC;
-            else if (frontend == "glslang")
-                options.hlsl_frontend = HlslFrontend::Glslang;
-            else
-                throw std::runtime_error(fmt::format("unknown HLSL frontend '{}' (expected dxc or glslang)", value));
+        } else if (arg == "-x" || arg == "--hlsl-frontend" || arg == "--vulkan-samplers") {
+            throw std::runtime_error(fmt::format(
+                "option '{}' was removed: axslcc compiles HLSL through DXC only, and Vulkan always uses "
+                "separate sampler descriptors", arg));
         } else if (arg == "-O0") {
             options.opt_level = 0;
         } else if (arg == "-O1") {
@@ -317,10 +288,7 @@ Options parse_args(int argc, char** argv)
     if (!fs::exists(options.input))
         throw std::runtime_error(fmt::format("input file does not exist: {}", options.input.string()));
 
-    auto info = classify(options.input);
-    options.stage = info.stage;
-    if (!options.xlang)
-        options.input_lang = info.lang;
+    options.stage = classify(options.input);
 
     if (options.output.empty())
         options.output = options.input.parent_path() / options.input.stem();
@@ -354,37 +322,19 @@ void write_file(const fs::path& path, std::string_view data)
         throw std::runtime_error(fmt::format("failed to write output: {}", path.string()));
 }
 
-ShaderInfo classify(const fs::path& input)
+ShaderStage classify(const fs::path& input)
 {
-    ShaderInfo info;
-
     std::string stem = lower(input.stem().string());
-    std::string ext = lower(input.extension().string());
 
-    // Detect stage
-    if (ext == ".vert")
-        info.stage = ShaderStage::Vertex;
-    else if (ext == ".frag")
-        info.stage = ShaderStage::Fragment;
-    else if (ext == ".comp")
-        info.stage = ShaderStage::Compute;
-    else if (stem.ends_with("_vs"))
-        info.stage = ShaderStage::Vertex;
-    else if (stem.ends_with("_fs") || stem.ends_with("_ps"))
-        info.stage = ShaderStage::Fragment;
-    else if (stem.ends_with("_cs"))
-        info.stage = ShaderStage::Compute;
-    else
-        throw std::runtime_error(fmt::format("cannot determine shader stage from filename '{}' (expected _vs/_fs/_ps/_cs suffix or .vert/.frag/.comp extension)", input.string()));
+    if (stem.ends_with("_vs"))
+        return ShaderStage::Vertex;
+    if (stem.ends_with("_fs") || stem.ends_with("_ps"))
+        return ShaderStage::Fragment;
+    if (stem.ends_with("_cs"))
+        return ShaderStage::Compute;
 
-    // Detect language
-    if (ext == ".hlsl" || ext == ".fx" || ext == ".hlsli")
-        info.lang = InputLang::HLSL;
-    else if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".glsl" ||
-             ext == ".geom" || ext == ".tesc" || ext == ".tese")
-        info.lang = InputLang::GLSL;
-
-    return info;
+    throw std::runtime_error(fmt::format(
+        "cannot determine shader stage from filename '{}' (expected a _vs/_fs/_ps/_cs suffix)", input.string()));
 }
 
 bool is_hlsl_source(const fs::path& input)

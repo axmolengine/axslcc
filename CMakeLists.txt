@@ -3,7 +3,11 @@ project(axslcc)
 
 message(STATUS "=== Generator: ${CMAKE_GENERATOR} ===")
 
-set(_GLSLANG_VER "16.5.0")
+# SPIRV-Tools is used for the post-SPIR-V passes only (dead-resource elimination,
+# runtime-metadata stripping and Vulkan validation). These pins match what axslcc
+# built against while SPIRV-Tools came in through glslang's External/ directory.
+set(_SPIRV_TOOLS_VER "2ec8457ab33d539b6f1fecc998360c0b8b05ed4f")   # v2026.2
+set(_SPIRV_HEADERS_VER "1a22b167081842915a1c78a0b5b5a353a23284aa") # vulkan-sdk-1.4.350.0
 
  if (WIN32)
     set (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
@@ -25,15 +29,14 @@ if(WIN32)
 else()
     option(STATIC_LINK "Statically link with system standard libraries. Affects release build only" OFF)
 endif()
-option(ENABLE_SPVREMAPPER "Enables building of SPVRemapper" ON)
-option(ENABLE_AMD_EXTENSIONS "Enables support of AMD-specific extensions" ON)
-option(ENABLE_GLSLANG_BINARIES "Builds glslangValidator and spirv-remap" ON)
-option(ENABLE_NV_EXTENSIONS "Enables support of Nvidia-specific extensions" ON)
-option(ENABLE_HLSL "Enables HLSL input support" ON)
-option(ENABLE_OPT "Enables spirv-opt capability if present" ON)
-set(ENABLE_PCH OFF CACHE BOOL "Disable third-party precompiled headers for simpler embedded builds" FORCE)
+# SPIRV-Tools is consumed as a static library only: axslcc links SPIRV-Tools-opt
+# for the post-SPIR-V passes. The command-line tools, tests and install rules of
+# the vendored copy are never used.
+set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "Skip building the executable and tests along with the library" FORCE)
+set(SPIRV_SKIP_TESTS ON CACHE BOOL "Skip building tests along with the library" FORCE)
+set(SPIRV_WERROR OFF CACHE BOOL "Enable error on warning" FORCE)
+set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "Skip installation" FORCE)
 
-option(USE_CCACHE "Use ccache" OFF)
 set(AXSLCC_DXC_ROOT "" CACHE PATH "DXC distribution root (contains include/dxc and lib/bin)")
 if (WIN32)
     option(ENABLE_D3D11_COMPILER "Use Direct3D11 compiler (d3dcompiler.lib + d3dcompiler_47.dll)" ON)
@@ -50,20 +53,7 @@ function(source_group_by_dir ROOT_DIR SOURCES)
     endforeach()
 endfunction()
 
-set(SX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
-
-if(ENABLE_AMD_EXTENSIONS)
-    add_definitions(-DAMD_EXTENSIONS)
-endif(ENABLE_AMD_EXTENSIONS)
-
-if(ENABLE_NV_EXTENSIONS)
-    add_definitions(-DNV_EXTENSIONS)
-endif(ENABLE_NV_EXTENSIONS)
-
-if(ENABLE_HLSL)
-    add_definitions(-DENABLE_HLSL)
-endif(ENABLE_HLSL)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -83,7 +73,6 @@ if (MSVC)
 	endif()
 endif()
 
-set(ENABLE_CTEST FALSE CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
 set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 
@@ -119,27 +108,34 @@ else()
     message(STATUS "SPIRV-Cross row-major store patch already applied")
 endif()
 
-if (NOT (IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang"))
-    message(STATUS "Downloading glslang ...")
-    find_program(GIT_COMMAND NAMES git REQUIRED)
-    execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/glslang.git" "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
-    execute_process(COMMAND ${GIT_COMMAND} -C "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang" checkout ${_GLSLANG_VER})
-    find_program(PYTHON_COMMAND NAMES python3 python REQUIRED)
-    execute_process(COMMAND ${PYTHON_COMMAND} "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang/update_glslang_sources.py" 
-        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
-    set(GLSLANG_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/3rdparty/glslang")
-    # set(GLSLANG_PATCH_FILE "${CMAKE_CURRENT_LIST_DIR}/glslang.patch")
-    # file(TO_CMAKE_PATH "${GLSLANG_SOURCE_DIR}" GLSLANG_SOURCE_DIR)
-    # file(TO_CMAKE_PATH "${GLSLANG_PATCH_FILE}" GLSLANG_PATCH_FILE)
-    # message(STATUS "Apply ${GLSLANG_PATCH_FILE} to ${GLSLANG_SOURCE_DIR} ...")
-    # execute_process(COMMAND ${GIT_COMMAND} -C "${GLSLANG_SOURCE_DIR}" apply --verbose --ignore-whitespace "${GLSLANG_PATCH_FILE}")
+set(SPIRV_TOOLS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/3rdparty/spirv-tools")
+if (NOT (IS_DIRECTORY "${SPIRV_TOOLS_SOURCE_DIR}"))
+    message(STATUS "Downloading SPIRV-Tools ...")
+    execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/SPIRV-Tools.git"
+                    "${SPIRV_TOOLS_SOURCE_DIR}")
+    execute_process(COMMAND ${GIT_COMMAND} -C "${SPIRV_TOOLS_SOURCE_DIR}" checkout ${_SPIRV_TOOLS_VER}
+                    RESULT_VARIABLE SPIRV_TOOLS_CHECKOUT)
+    if(NOT SPIRV_TOOLS_CHECKOUT EQUAL 0)
+        message(FATAL_ERROR "Failed to check out SPIRV-Tools ${_SPIRV_TOOLS_VER}")
+    endif()
+endif()
+
+# SPIRV-Tools reads the SPIR-V grammar JSON out of its own external/ directory.
+set(SPIRV_HEADERS_SOURCE_DIR "${SPIRV_TOOLS_SOURCE_DIR}/external/spirv-headers")
+if (NOT (IS_DIRECTORY "${SPIRV_HEADERS_SOURCE_DIR}"))
+    message(STATUS "Downloading SPIRV-Headers ...")
+    file(MAKE_DIRECTORY "${SPIRV_TOOLS_SOURCE_DIR}/external")
+    execute_process(COMMAND ${GIT_COMMAND} clone "https://github.com/KhronosGroup/SPIRV-Headers.git"
+                    "${SPIRV_HEADERS_SOURCE_DIR}")
+    execute_process(COMMAND ${GIT_COMMAND} -C "${SPIRV_HEADERS_SOURCE_DIR}" checkout ${_SPIRV_HEADERS_VER}
+                    RESULT_VARIABLE SPIRV_HEADERS_CHECKOUT)
+    if(NOT SPIRV_HEADERS_CHECKOUT EQUAL 0)
+        message(FATAL_ERROR "Failed to check out SPIRV-Headers ${_SPIRV_HEADERS_VER}")
+    endif()
 endif()
 
 add_subdirectory(3rdparty/dxc)
-add_subdirectory(3rdparty/glslang)
-if(TARGET SPIRV-Tools-static AND TARGET SPIRV-Tools-shared)
-  add_dependencies(SPIRV-Tools-static SPIRV-Tools-shared)
-endif()
+add_subdirectory(3rdparty/spirv-tools)
 add_subdirectory(3rdparty/spirv-cross)
 
 set(axslcc_SOURCES 
@@ -175,9 +171,6 @@ add_subdirectory(3rdparty/fmt)
 
 add_executable(axslcc ${axslcc_SOURCES})
 target_link_libraries(axslcc PRIVATE
-    glslang::glslang
-    glslang::SPIRV
-    glslang::glslang-default-resource-limits
     SPIRV-Tools-opt
     spirv-cross-glsl
     spirv-cross-hlsl
@@ -327,13 +320,13 @@ if(EXISTS "${_dxc_license}")
             DESTINATION . COMPONENT axslcc)
 endif()
 
-# glslang / SPIRV-Tools / spirv-cross / yasio licenses
-install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/glslang/LICENSE.txt"
-        DESTINATION . COMPONENT axslcc
-        RENAME "LICENSE-glslang.txt")
-install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/glslang/External/spirv-tools/LICENSE"
+# SPIRV-Tools / SPIRV-Headers / spirv-cross / yasio licenses
+install(FILES "${SPIRV_TOOLS_SOURCE_DIR}/LICENSE"
         DESTINATION . COMPONENT axslcc
         RENAME "LICENSE-spirv-tools.txt")
+install(FILES "${SPIRV_HEADERS_SOURCE_DIR}/LICENSE"
+        DESTINATION . COMPONENT axslcc
+        RENAME "LICENSE-spirv-headers.txt")
 install(FILES "${CMAKE_SOURCE_DIR}/3rdparty/spirv-cross/LICENSE"
         DESTINATION . COMPONENT axslcc
         RENAME "LICENSE-spirv-cross.txt")

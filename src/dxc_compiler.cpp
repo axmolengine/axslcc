@@ -287,8 +287,9 @@ DxcResult compile_spirv(std::string_view hlsl,
                         const Options& options,
                         const Target& target)
 {
-    bool separateSamplerBindings = target.lang == axslc::SHADER_LANG_SPIRV &&
-        options.vulkan_sampler_mode == VulkanSamplerMode::Separate;
+    // Vulkan always uses separate sampled-image and sampler descriptors; the
+    // binding shift in compile_impl keeps samplers off the texture slots.
+    bool separateSamplerBindings = target.lang == axslc::SHADER_LANG_SPIRV;
     return compile_impl(hlsl, options, target, true, separateSamplerBindings);
 }
 

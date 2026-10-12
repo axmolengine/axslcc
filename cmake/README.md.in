@@ -9,7 +9,8 @@ This package includes the axslcc shader cross-compiler and its runtime dependenc
 | axslcc    | @AXSLCC_VERSION@ | Shader cross-compiler |
 | dxc       | @DXC_VERSION@ | DirectXShaderCompiler runtime library |
 | fxc       | @DXC_FXC_VERSION@ | d3dcompiler_47.dll (Windows FXC runtime) |
-| glslang   | 16.3.0 | GLSL/HLSL front-end |
+| spirv-tools | v2026.2 | SPIR-V post-processing and Vulkan validation |
+| spirv-headers | vulkan-sdk-1.4.350.0 | SPIR-V grammar headers (build-time only) |
 | spirv-cross | vulkan-sdk-1.4.350.0 | SPIRV cross-compiler backends |
 | yasio     | — | Lightweight network library |
 
@@ -20,6 +21,7 @@ This package includes the axslcc shader cross-compiler and its runtime dependenc
 | axslcc    | MIT — see `LICENSE` |
 | yasio     | MIT — see `LICENSE-yasio.txt` |
 | dxc       | Apache 2.0 with LLVM Exceptions — see `LICENSE-dxc.txt` |
-| glslang   | BSD 3-Clause — see `LICENSE-glslang.txt` |
+| spirv-tools | Apache 2.0 — see `LICENSE-spirv-tools.txt` |
+| spirv-headers | MIT — see `LICENSE-spirv-headers.txt` |
 | spirv-cross | Apache 2.0 — see `LICENSE-spirv-cross.txt` |
 | fxc       | Windows SDK — see `LICENSE-fxc.txt` |
