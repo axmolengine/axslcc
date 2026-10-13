@@ -148,6 +148,11 @@ std::string cross_compile(const Target& target, const std::vector<uint32_t>& spi
     if (target.lang == axslc::SHADER_LANG_ESSL) {
         spv_options.es = true;
         spv_options.version = target.profile;
+        // Match axmol v3 pre-HLSL-migration behavior: fragment shaders default
+        // to highp for both float and int, rather than spirv-cross's stock
+        // defaults (mediump float / highp int).
+        spv_options.fragment.default_float_precision = spirv_cross::CompilerGLSL::Options::Highp;
+        spv_options.fragment.default_int_precision = spirv_cross::CompilerGLSL::Options::Highp;
     } else if (target.lang == axslc::SHADER_LANG_GLSL) {
         spv_options.es = false;
         spv_options.version = target.profile;
