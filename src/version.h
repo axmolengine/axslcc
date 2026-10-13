@@ -11,7 +11,7 @@
 
 #define AXSLCC_MAJOR 4
 #define AXSLCC_MINOR 0
-#define AXSLCC_PATCH 0
+#define AXSLCC_PATCH 1
 
 #define _AXSLCCSTR(R)      #R
 #define _AXSLCCMACROSTR(R) _AXSLCCSTR(R)

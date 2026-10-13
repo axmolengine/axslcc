@@ -140,6 +140,7 @@ add_subdirectory(3rdparty/spirv-cross)
 
 set(axslcc_SOURCES 
     src/axslc-spec.h
+    src/version.h
     src/types.h
     src/utils.h
     src/utils.cpp
