@@ -196,6 +196,14 @@ DxcResult compile_impl(std::string_view hlsl,
         // Keep HLSL semantics in the in-memory intermediate. Runtime Vulkan
         // modules strip this metadata after reflection/cross-compilation.
         push(L"-fspv-reflect");
+        if (target.lang == axslc::SHADER_LANG_HLSL)
+        {
+            // D3D11/D3D12 match VS outputs to PS inputs by hardware register index
+            // (assigned sequentially in struct declaration order), not just semantic
+            // name/index. Preserve declared entry-point interface variables across
+            // SPIR-V optimization so SPIRV-Cross emits the full stage signature.
+            push(L"-fspv-preserve-interface");
+        }
         if (separateSamplerBindings)
         {
             // Shift samplers away from texture slots in both set 1 (presets) and set 2 (custom).
